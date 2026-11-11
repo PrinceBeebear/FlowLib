@@ -9,6 +9,7 @@
 		local win = Lib:CreateWindow({ title = "Flow • Mi Script" })
 		local tab = win:CreateTab("General")
 		tab:AddButton { name = "Hola", callback = function() end }
+		tab:AddToggle { name = "Fly", keybind = Enum.KeyCode.X, callback = function(on) end }
 
 	Componentes: AddLabel, AddButton, AddToggle, AddSlider, AddKeybind,
 	             AddList, AddDropdown, AddSearchBox, AddSection, AddUIBind
@@ -728,8 +729,26 @@ end
 function Page:AddToggle(opts)
 	opts = opts or {}
 	local value = (opts.default == true)
-	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, ROW_H, 56)
+	local key = toKeyCode(opts.keybind)
+	local skipProc = opts.skipGameProcessed
+	if skipProc == nil then skipProc = true end
+	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, ROW_H, key and 96 or 56)
 	local state = rightLabel(btn, value and "ON" or "OFF", value and COLOR.TEXT or COLOR.TEXT_DIM)
+	local keyLabel
+	if key then
+		keyLabel = Create("TextLabel", {
+			Name = "Key",
+			Size = UDim2.new(0, 36, 1, 0),
+			Position = UDim2.new(1, -96, 0, 0),
+			BackgroundTransparency = 1,
+			Text = shortKey(key),
+			TextColor3 = COLOR.TEXT_DIM,
+			FontFace = FONT_BOLD,
+			TextSize = 9,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			Parent = btn,
+		})
+	end
 
 	local getState
 	getState = function()
@@ -753,11 +772,27 @@ function Page:AddToggle(opts)
 		apply(not value, true)
 	end)
 
+	-- tecla que enciende/apaga el toggle (sin depender de la UI visible)
+	if key then
+		self.window:_track(UserInputService.InputBegan:Connect(function(input, processed)
+			if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+			if key == nil or input.KeyCode ~= key then return end
+			if processed and skipProc then return end
+			apply(not value, true)
+		end))
+	end
+
 	self:_refresh()
 	return {
 		Frame = btn,
 		Get = function() return value end,
 		Set = function(v) apply(v == true, false) end,
+		Toggle = function() apply(not value, true) end,
+		GetKey = function() return key end,
+		SetKey = function(k)
+			key = toKeyCode(k)
+			if keyLabel then keyLabel.Text = shortKey(key) end
+		end,
 	}
 end
 
