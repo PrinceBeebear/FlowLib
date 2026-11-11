@@ -6,7 +6,8 @@
 			"https://raw.githubusercontent.com/PrinceBeebear/FlowLib/main/LIBB.lua"
 		))()
 		Lib:Singleton("MiScript")
-		local win = Lib:CreateWindow({ title = "Flow • Mi Script" })
+		local win = Lib:CreateWindow({ title = "Flow • Mi Script", width = 210, height = 150 })
+		-- tamaño: width/height o size = {w, h} (default 270x480)
 		local tab = win:CreateTab("General")
 		tab:AddButton { name = "Hola", callback = function() end }
 		tab:AddToggle { name = "Fly", keybind = Enum.KeyCode.X, callback = function(on) end }
@@ -91,6 +92,8 @@ local COLOR = {
 	TEXT      = Color3.fromRGB(255, 255, 255),
 	TEXT_DIM  = Color3.fromRGB(175, 175, 175),
 	STROKE    = Color3.fromRGB(210, 210, 225),
+	BORDER    = Color3.fromRGB(72, 72, 72),
+	GLOW      = Color3.fromRGB(205, 205, 205),
 	ACCENT    = Color3.fromRGB(100, 100, 100),
 	DANGER    = Color3.fromRGB(255, 60, 60),
 	GOLD      = Color3.fromRGB(255, 215, 0),
@@ -101,7 +104,7 @@ local COLOR = {
 }
 FlowLib.Colors = COLOR
 
-local CORNER_RADIUS     = 18
+local CORNER_RADIUS     = 24
 local ROW_RADIUS        = 8
 local ROW_H             = 36
 local ROW_TRANSPARENCY  = 0.3
@@ -112,11 +115,20 @@ local FADE_TIME         = 0.3
 local FAST              = 0.15
 local HEADER_H          = 38
 
+local SHADOW_TRANSPARENCY = 0.55
+local BAR_TRANSPARENCY    = 0.25
+-- Barra de arrastre: dentro de la ventana (arriba) o fuera, sobre el borde,
+-- cuando esta minimizada para poder moverla con facilidad
+local DRAG_BAR_IN  = UDim2.new(0, 16, 0, 5)
+local DRAG_BAR_OUT = UDim2.new(0, 16, 0, -9)
+
+-- Contorno: gris oscuro suave visible en el borde superior e inferior
+-- (llega hasta las esquinas y se desvanece hacia los laterales)
 local STROKE_GRADIENT = NumberSequence.new({
-	NumberSequenceKeypoint.new(0, 1),
-	NumberSequenceKeypoint.new(0.466, 0),
-	NumberSequenceKeypoint.new(0.947, 0.906),
-	NumberSequenceKeypoint.new(1, 1),
+	NumberSequenceKeypoint.new(0, 0.4),
+	NumberSequenceKeypoint.new(0.14, 1),
+	NumberSequenceKeypoint.new(0.86, 1),
+	NumberSequenceKeypoint.new(1, 0.4),
 })
 
 local function makeFont(weight)
@@ -1497,7 +1509,7 @@ function Window:_disconnectAll()
 	self._connections = {}
 end
 
--- Fade uniforme: Body (CanvasGroup) + DropShadow; nada mas se tween-a.
+-- Fade uniforme: Body (CanvasGroup) + WinShadow + DragBar; nada mas se tween-a.
 function Window:SetVisible(show)
 	if self.destroyed or self.visible == show then return end
 	self.visible = show
@@ -1508,7 +1520,8 @@ function Window:SetVisible(show)
 		self.MainFrame.Visible = true
 	end
 	Tween(self.Body, { GroupTransparency = show and 0 or 1 }, FADE_TIME)
-	Tween(self.DropShadow, { ImageTransparency = show and 0.60 or 1 }, FADE_TIME)
+	Tween(self.WinShadow, { Transparency = show and SHADOW_TRANSPARENCY or 1 }, FADE_TIME)
+	Tween(self.DragBar, { BackgroundTransparency = show and BAR_TRANSPARENCY or 1 }, FADE_TIME)
 
 	if not show then
 		task.delay(FADE_TIME, function()
@@ -1546,10 +1559,16 @@ function Window:ToggleMinimize()
 		self.MinIcon.Text = "+"
 		self.ContentArea.Visible = false
 		TweenService:Create(self.MainFrame, info, { Size = self.minSize }):Play()
+		if self.DragBar then
+			TweenService:Create(self.DragBar, info, { Position = DRAG_BAR_OUT }):Play()
+		end
 	else
 		self.MinIcon.Text = "-"
 		local t = TweenService:Create(self.MainFrame, info, { Size = self.fullSize })
 		t:Play()
+		if self.DragBar then
+			TweenService:Create(self.DragBar, info, { Position = DRAG_BAR_IN }):Play()
+		end
 		t.Completed:Connect(function()
 			if not self.minimized and not self.destroyed then
 				self.ContentArea.Visible = true
@@ -1824,17 +1843,24 @@ local function GetSafeParent()
 	return parent
 end
 
--- Tamaño responsivo (IA-skill): 270x480 en escritorio, clamp en móvil
+-- Tamaño configurable desde el script: width/height o size = {w, h}
+-- (default 270x480 en escritorio, clamp en móvil)
 local function calcSizes(opts)
+	local ow, oh
+	if type(opts.size) == "table" then
+		ow, oh = tonumber(opts.size[1]), tonumber(opts.size[2])
+	end
+	ow = tonumber(opts.width) or ow
+	oh = tonumber(opts.height) or oh
 	local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1920, 1080)
 	local isSmall = UserInputService.TouchEnabled and (not UserInputService.KeyboardEnabled or math.min(vp.X, vp.Y) < 700)
 	if isSmall then
-		local w = math.clamp(math.floor(opts.width or (vp.X * 0.6)), 200, 240)
-		local h = math.clamp(math.floor(opts.height or (vp.Y * 0.85)), 280, 420)
+		local w = math.clamp(math.floor(ow or (vp.X * 0.6)), 200, 240)
+		local h = math.clamp(math.floor(oh or (vp.Y * 0.85)), 280, 420)
 		return UDim2.new(0, w, 0, h), UDim2.new(0, w, 0, HEADER_H)
 	end
-	local w = math.floor(tonumber(opts.width) or 270)
-	local h = math.floor(tonumber(opts.height) or 480)
+	local w = math.floor(ow or 270)
+	local h = math.floor(oh or 480)
 	return UDim2.new(0, w, 0, h), UDim2.new(0, w, 0, HEADER_H)
 end
 
@@ -1902,21 +1928,35 @@ function FlowLib:CreateWindow(opts)
 	Round(CORNER_RADIUS, MainFrame)
 	win.MainFrame = MainFrame
 
-	-- La sombra vive fuera del CanvasGroup para poder salirse del borde
-	local DropShadow = Create("ImageLabel", {
-		Name = "DropShadow",
-		BackgroundTransparency = 1,
-		Position = UDim2.new(0, -20, 0, -20),
-		Size = UDim2.new(1, 40, 1, 40),
-		ZIndex = 1,
-		Image = "rbxassetid://6015897843",
-		ImageColor3 = Color3.fromRGB(0, 0, 0),
-		ImageTransparency = 1,
-		ScaleType = Enum.ScaleType.Slice,
-		SliceCenter = Rect.new(25, 25, 475, 475),
+	-- Sombra nativa (UIShadow): suave y ajustada a la ventana (sigue el
+	-- UICorner). ShowBehindParent=false para que no oscurezca el interior
+	-- a traves del fondo transparente del MainFrame.
+	local WinShadow = Create("UIShadow", {
+		Name = "WinShadow",
+		BlurRadius = UDim.new(0.22, 0),
+		Color = Color3.fromRGB(0, 0, 0),
+		Transparency = SHADOW_TRANSPARENCY,
+		Offset = UDim2.new(0, 0, 0, 8),
+		ShowBehindParent = false,
 		Parent = MainFrame,
 	})
-	win.DropShadow = DropShadow
+	win.WinShadow = WinShadow
+
+	-- Barra de arrastre: blanca 25%, dentro de la ventana arriba; al
+	-- minimizar sale por encima del borde para agarrarla mejor
+	local DragBar = Create("Frame", {
+		Name = "DragBar",
+		Size = UDim2.new(1, -122, 0, 5),
+		Position = DRAG_BAR_IN,
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = BAR_TRANSPARENCY,
+		BorderSizePixel = 0,
+		ZIndex = 11,
+		Active = true,
+		Parent = MainFrame,
+	})
+	Circle(DragBar)
+	win.DragBar = DragBar
 
 	-- Body: CanvasGroup de TODO lo visual; su GroupTransparency es el fade global
 	local Body = Create("CanvasGroup", {
@@ -1934,12 +1974,12 @@ function FlowLib:CreateWindow(opts)
 	local WindowStroke = Create("UIStroke", {
 		Name = "WindowStroke",
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-		Color = COLOR.STROKE,
+		Color = COLOR.BORDER,
 		Thickness = 1.2,
-		Transparency = 0.3,
+		Transparency = 0.1,
 		Parent = Body,
 	})
-	Create("UIGradient", { Rotation = -22, Transparency = STROKE_GRADIENT, Parent = WindowStroke })
+	Create("UIGradient", { Rotation = 90, Transparency = STROKE_GRADIENT, Parent = WindowStroke })
 	win.WindowStroke = WindowStroke
 
 	local GlassBackdrop = Create("ImageLabel", {
@@ -1954,6 +1994,29 @@ function FlowLib:CreateWindow(opts)
 	})
 	Round(CORNER_RADIUS, GlassBackdrop)
 	win.GlassBackdrop = GlassBackdrop
+
+	-- Luz suave por dentro, disparada hacia arriba desde el fondo
+	-- (gris claro y muy sutil, solo ambienta la parte de abajo)
+	local BottomGlow = Create("Frame", {
+		Name = "BottomGlow",
+		Size = UDim2.new(1, 0, 0.35, 0),
+		Position = UDim2.new(0, 0, 0.65, 0),
+		BackgroundColor3 = COLOR.GLOW,
+		BackgroundTransparency = 0,
+		BorderSizePixel = 0,
+		ZIndex = 11,
+		Parent = Body,
+	})
+	Round(CORNER_RADIUS, BottomGlow)
+	Create("UIGradient", {
+		Rotation = 90,
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 1),
+			NumberSequenceKeypoint.new(1, 0.87),
+		}),
+		Parent = BottomGlow,
+	})
+	win.BottomGlow = BottomGlow
 
 	local Title = Create("TextLabel", {
 		Name = "Title",
@@ -1984,15 +2047,15 @@ function FlowLib:CreateWindow(opts)
 	})
 	win.DragArea = DragArea
 
-	-- Botones circulares 26x26 (estilo RR)
-	local function createWindowButton(name, iconText, posX, hoverColor)
+	-- Botones minimalistas: circulos con "-" y "X"; sin animaciones
+	local function createWindowButton(name, iconText, posX)
 		local btn = Create("TextButton", {
 			Name = name,
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Size = UDim2.new(0, 26, 0, 26),
 			Position = UDim2.new(1, posX, 0, HEADER_H / 2),
-			BackgroundColor3 = COLOR.TEXT,
-			BackgroundTransparency = 1,
+			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+			BackgroundTransparency = 0.92,
 			Text = "",
 			AutoButtonColor = false,
 			ZIndex = 15,
@@ -2000,14 +2063,13 @@ function FlowLib:CreateWindow(opts)
 		})
 		Circle(btn)
 
-		local stroke = Create("UIStroke", {
+		Create("UIStroke", {
 			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-			Color = COLOR.STROKE,
+			Color = COLOR.BORDER,
 			Thickness = 1.2,
-			Transparency = 0.3,
+			Transparency = 0.1,
 			Parent = btn,
 		})
-		Create("UIGradient", { Rotation = -22, Transparency = STROKE_GRADIENT, Parent = stroke })
 
 		local icon = Create("TextLabel", {
 			Name = "Icon",
@@ -2016,38 +2078,15 @@ function FlowLib:CreateWindow(opts)
 			Text = iconText,
 			TextColor3 = COLOR.TEXT,
 			FontFace = FONT_BOLD,
-			TextSize = (iconText == "-") and 18 or 12,
+			TextSize = (iconText == "-") and 16 or 12,
 			ZIndex = 16,
 			Parent = btn,
 		})
-
-		btn.MouseEnter:Connect(function()
-			if not win.visible then return end
-			Tween(btn, { BackgroundTransparency = 0.85 }, FAST, Enum.EasingStyle.Quart)
-			Tween(stroke, { Color = COLOR.TEXT, Transparency = 0 }, FAST, Enum.EasingStyle.Quart)
-			if hoverColor then
-				Tween(icon, { TextColor3 = hoverColor }, FAST, Enum.EasingStyle.Quart)
-			end
-		end)
-		btn.MouseLeave:Connect(function()
-			if not win.visible then return end
-			Tween(btn, { BackgroundTransparency = 1 }, FAST, Enum.EasingStyle.Quart)
-			Tween(stroke, { Color = COLOR.STROKE, Transparency = 0.3 }, FAST, Enum.EasingStyle.Quart)
-			if hoverColor then
-				Tween(icon, { TextColor3 = COLOR.TEXT }, FAST, Enum.EasingStyle.Quart)
-			end
-		end)
-		btn.MouseButton1Down:Connect(function()
-			Tween(btn, { Size = UDim2.new(0, 23, 0, 23) }, FAST, Enum.EasingStyle.Quart)
-		end)
-		btn.MouseButton1Up:Connect(function()
-			Tween(btn, { Size = UDim2.new(0, 26, 0, 26) }, FAST, Enum.EasingStyle.Quart)
-		end)
 		return btn, icon
 	end
 
-	local MinimizeBtn, MinIcon = createWindowButton("MinimizeBtn", "-", -60, nil)
-	local CloseBtn, CloseIcon = createWindowButton("CloseBtn", "X", -25, COLOR.DANGER)
+	local MinimizeBtn, MinIcon = createWindowButton("MinimizeBtn", "-", -60)
+	local CloseBtn, CloseIcon = createWindowButton("CloseBtn", "X", -25)
 	win.MinimizeBtn = MinimizeBtn
 	win.MinIcon = MinIcon
 	win.CloseBtn = CloseBtn
@@ -2132,6 +2171,8 @@ function FlowLib:CreateWindow(opts)
 	Title.InputChanged:Connect(function(i) win:_dragChanged(i) end)
 	DragArea.InputBegan:Connect(function(i) win:_dragBegan(i) end)
 	DragArea.InputChanged:Connect(function(i) win:_dragChanged(i) end)
+	DragBar.InputBegan:Connect(function(i) win:_dragBegan(i) end)
+	DragBar.InputChanged:Connect(function(i) win:_dragChanged(i) end)
 
 	win:_track(UserInputService.InputChanged:Connect(function(input)
 		if input == win._dragInput and win._dragging then

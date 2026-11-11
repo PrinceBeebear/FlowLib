@@ -15,8 +15,7 @@ FlowLib:Singleton("FlowUI")
 
 local Win = FlowLib:CreateWindow({
     title   = "Flow Example",
-    width   = 270,
-    height  = 480,
+    size    = { 260, 360 },
     keybind = Enum.KeyCode.RightControl,
 })
 
