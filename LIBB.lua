@@ -10,7 +10,8 @@
 		-- tamaño: width/height o size = {w, h} (default 270x480)
 		local tab = win:CreateTab("General")
 		tab:AddButton { name = "Hola", callback = function() end }
-		tab:AddToggle { name = "Fly", keybind = Enum.KeyCode.X, callback = function(on) end }
+		tab:AddToggle { name = "Fly", callback = function(on) end }
+		tab:AddKeybind { name = "Tecla", default = Enum.KeyCode.X, callback = function(key) end }
 
 	Componentes: AddLabel, AddButton, AddToggle, AddSlider, AddKeybind,
 	             AddList, AddDropdown, AddSearchBox, AddSection, AddUIBind
@@ -116,11 +117,18 @@ local FAST              = 0.15
 local HEADER_H          = 38
 
 local SHADOW_TRANSPARENCY = 0.55
-local BAR_TRANSPARENCY    = 0.25
--- Barra de arrastre: dentro de la ventana (arriba) o fuera, sobre el borde,
--- cuando esta minimizada para poder moverla con facilidad
-local DRAG_BAR_IN  = UDim2.new(0, 16, 0, 5)
-local DRAG_BAR_OUT = UDim2.new(0, 16, 0, -9)
+-- Barra de arrastre: blanca y muy transparente por defecto; al hacer
+-- hover se vuelve opaca y crece un poco (tween)
+local BAR_TRANSPARENCY    = 0.6
+-- Barra de arrastre: centrada (AnchorPoint 0.5) arriba de la ventana;
+-- al minimizar sale por encima del borde para poder moverla con facilidad
+local DRAG_BAR_IN        = UDim2.new(0.5, 0, 0, 5)
+local DRAG_BAR_OUT       = UDim2.new(0.5, 0, 0, -9)
+local DRAG_BAR_SIZE      = UDim2.new(0, 104, 0, 5)
+local DRAG_BAR_SIZE_HOVE = UDim2.new(0, 124, 0, 7)
+
+-- Icono por defecto de las filas de bind (decal que indica "es un bind")
+local KEYBIND_ICON = "rbxassetid://133118219945599"
 
 -- Contorno: gris oscuro suave visible en el borde superior e inferior
 -- (llega hasta las esquinas y se desvanece hacia los laterales)
@@ -744,14 +752,50 @@ function Page:AddToggle(opts)
 	local key = toKeyCode(opts.keybind)
 	local skipProc = opts.skipGameProcessed
 	if skipProc == nil then skipProc = true end
-	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, ROW_H, key and 96 or 56)
-	local state = rightLabel(btn, value and "ON" or "OFF", value and COLOR.TEXT or COLOR.TEXT_DIM)
+	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, ROW_H, key and 108 or 68)
+
+	-- switch estilo iPhone (iOS 26): pista horizontal tipo pildora y
+	-- knob capsula (no circular). Al tocarlo el centro del knob queda
+	-- transparente y solo se ve su contorno (lente), dejando ver la
+	-- barrita de la pista por dentro
+	local switch = Create("Frame", {
+		Name = "Switch",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.new(0, 56, 0, 26),
+		Position = UDim2.new(1, -40, 0.5, 0),
+		BackgroundColor3 = Color3.fromRGB(60, 60, 60),
+		BorderSizePixel = 0,
+		Parent = btn,
+	})
+	Round(13, switch)
+
+	local knob = Create("Frame", {
+		Name = "Knob",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.new(0, 32, 0, 20),
+		Position = UDim2.new(0, 19, 0.5, 0),
+		BackgroundColor3 = COLOR.TEXT,
+		BorderSizePixel = 0,
+		ZIndex = 2,
+		Parent = switch,
+	})
+	Round(10, knob)
+
+	local lens = Create("UIStroke", {
+		Name = "Lens",
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		Color = COLOR.TEXT,
+		Thickness = 1.4,
+		Transparency = 1,
+		Parent = knob,
+	})
+
 	local keyLabel
 	if key then
 		keyLabel = Create("TextLabel", {
 			Name = "Key",
 			Size = UDim2.new(0, 36, 1, 0),
-			Position = UDim2.new(1, -96, 0, 0),
+			Position = UDim2.new(1, -108, 0, 0),
 			BackgroundTransparency = 1,
 			Text = shortKey(key),
 			TextColor3 = COLOR.TEXT_DIM,
@@ -771,13 +815,28 @@ function Page:AddToggle(opts)
 	end
 	bindRowHover(btn, getState)
 
+	local function trackColor()
+		if value then return Color3.fromRGB(150, 150, 150) end
+		return Color3.fromRGB(60, 60, 60)
+	end
+
 	local function apply(v, fire)
 		if value == v then return end
 		value = v
 		Tween(btn, { BackgroundColor3 = getState().base }, FAST, Enum.EasingStyle.Quart)
-		state.Text = value and "ON" or "OFF"
-		Tween(state, { TextColor3 = value and COLOR.TEXT or COLOR.TEXT_DIM }, FAST, Enum.EasingStyle.Quart)
+		Tween(switch, { BackgroundColor3 = trackColor() }, FAST, Enum.EasingStyle.Quart)
+		Tween(knob, {
+			Position = UDim2.new(0, value and 37 or 19, 0.5, 0),
+			BackgroundTransparency = 1,
+		}, FAST, Enum.EasingStyle.Quart)
+		Tween(lens, { Transparency = 0.15 }, FAST, Enum.EasingStyle.Quart)
 		if fire and opts.callback then opts.callback(value) end
+	end
+
+	-- estado inicial (sin tocar: knob solido; encendido: pista clara)
+	switch.BackgroundColor3 = trackColor()
+	if value then
+		knob.Position = UDim2.new(0, 37, 0.5, 0)
 	end
 
 	btn.MouseButton1Click:Connect(function()
@@ -862,11 +921,11 @@ function Page:AddSlider(opts)
 		Parent = holder,
 	})
 
-	-- track: fondo transparente (nunca se tween-a) + fill + knob
+	-- track: fondo transparente (nunca se tween-a) + fill + knob capsula
 	local track = Create("Frame", {
 		Name = "Track",
-		Size = UDim2.new(1, -24, 0, 5),
-		Position = UDim2.new(0, 12, 1, -16),
+		Size = UDim2.new(1, -24, 0, 6),
+		Position = UDim2.new(0, 12, 1, -17),
 		BackgroundColor3 = Color3.fromRGB(40, 40, 40),
 		BackgroundTransparency = 1,
 		ClipsDescendants = false,
@@ -882,15 +941,28 @@ function Page:AddSlider(opts)
 	})
 	Circle(fill)
 
+	-- knob capsula estilo iPhone: al arrastrarlo su centro queda
+	-- transparente y solo se ve su contorno (lente)
 	local knob = Create("Frame", {
 		Name = "Knob",
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Size = UDim2.new(0, 11, 0, 11),
-		Position = UDim2.new(1, -5, 0.5, 0),
+		Size = UDim2.new(0, 20, 0, 12),
+		Position = UDim2.new(0, 0, 0.5, 0),
 		BackgroundColor3 = COLOR.TEXT,
-		Parent = fill,
+		BorderSizePixel = 0,
+		ZIndex = 3,
+		Parent = track,
 	})
 	Circle(knob)
+
+	local lens = Create("UIStroke", {
+		Name = "Lens",
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		Color = COLOR.TEXT,
+		Thickness = 1.4,
+		Transparency = 1,
+		Parent = knob,
+	})
 
 	-- hitbox invisible mas alta que la barra: NUNCA entra al fade
 	local hit = Create("TextButton", {
@@ -913,6 +985,7 @@ function Page:AddSlider(opts)
 		local pct = range ~= 0 and ((value - minV) / range) or 0
 		pct = math.clamp(pct, 0, 1)
 		fill.Size = UDim2.new(pct, 0, 1, 0)
+		knob.Position = UDim2.new(pct, 0, 0.5, 0)
 		valueLabel.Text = fmt(value)
 	end
 
@@ -938,6 +1011,9 @@ function Page:AddSlider(opts)
 	hit.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
+			-- al arrastrarlo: centro transparente, solo el contorno (lente)
+			Tween(knob, { BackgroundTransparency = 1 }, FAST, Enum.EasingStyle.Quart)
+			Tween(lens, { Transparency = 0.15 }, FAST, Enum.EasingStyle.Quart)
 			applyFromInput(input)
 		end
 	end)
@@ -969,8 +1045,20 @@ function Page:AddKeybind(opts)
 	local skipGameProcessed = opts.skipGameProcessed
 	if skipGameProcessed == nil then skipGameProcessed = true end
 
-	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, ROW_H, 60)
-	local keyLabel = rightLabel(btn, shortKey(key), COLOR.TEXT_DIM, 48)
+	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, ROW_H, 82)
+
+	-- icono por defecto (decal) que indica que la fila es un bind
+	Create("ImageLabel", {
+		Name = "BindIcon",
+		Size = UDim2.new(0, 14, 0, 14),
+		Position = UDim2.new(1, -70, 0.5, -7),
+		BackgroundTransparency = 1,
+		Image = KEYBIND_ICON,
+		ImageColor3 = COLOR.TEXT_DIM,
+		Parent = btn,
+	})
+
+	local keyLabel = rightLabel(btn, shortKey(key), COLOR.TEXT_DIM, 44)
 	keyLabel.TextSize = 9
 
 	local function refresh()
@@ -1509,7 +1597,14 @@ function Window:_disconnectAll()
 	self._connections = {}
 end
 
--- Fade uniforme: Body (CanvasGroup) + WinShadow + DragBar; nada mas se tween-a.
+-- Fade de TODOS los elementos: cada elemento visual se registra en
+-- _fadeList {obj, prop, on, off} y SetVisible los tween-a juntos
+-- (fade-in al aparecer, fade-out al ocultar o al cerrar el script).
+function Window:_registerFade(obj, prop, on, off)
+	if not obj then return end
+	table.insert(self._fadeList, { obj = obj, prop = prop, on = on, off = off })
+end
+
 function Window:SetVisible(show)
 	if self.destroyed or self.visible == show then return end
 	self.visible = show
@@ -1519,9 +1614,11 @@ function Window:SetVisible(show)
 	if show then
 		self.MainFrame.Visible = true
 	end
-	Tween(self.Body, { GroupTransparency = show and 0 or 1 }, FADE_TIME)
-	Tween(self.WinShadow, { Transparency = show and SHADOW_TRANSPARENCY or 1 }, FADE_TIME)
-	Tween(self.DragBar, { BackgroundTransparency = show and BAR_TRANSPARENCY or 1 }, FADE_TIME)
+	for _, f in ipairs(self._fadeList) do
+		local goal = {}
+		goal[f.prop] = show and f.on or f.off
+		Tween(f.obj, goal, FADE_TIME)
+	end
 
 	if not show then
 		task.delay(FADE_TIME, function()
@@ -1895,6 +1992,7 @@ function FlowLib:CreateWindow(opts)
 		_tabsShown = false,
 		_selectedTab = nil,
 		_fadeVersion = 0,
+		_fadeList = {},
 		_dragging = false,
 		_dragVelocity = Vector2.new(0, 0),
 		_dragStart = Vector2.new(0, 0),
@@ -1928,28 +2026,31 @@ function FlowLib:CreateWindow(opts)
 	Round(CORNER_RADIUS, MainFrame)
 	win.MainFrame = MainFrame
 
-	-- Sombra nativa (UIShadow): suave y ajustada a la ventana (sigue el
-	-- UICorner). ShowBehindParent=false para que no oscurezca el interior
-	-- a traves del fondo transparente del MainFrame.
+	-- Sombra nativa (UIShadow): suave, ajustada al tamano y centrada
+	-- (Offset 0). ShowBehindParent=false para que no oscurezca el interior
+	-- a traves del fondo transparente del MainFrame. Arranca invisible:
+	-- el fade la trae junto al resto de elementos.
 	local WinShadow = Create("UIShadow", {
 		Name = "WinShadow",
 		BlurRadius = UDim.new(0.22, 0),
 		Color = Color3.fromRGB(0, 0, 0),
-		Transparency = SHADOW_TRANSPARENCY,
-		Offset = UDim2.new(0, 0, 0, 8),
+		Transparency = 1,
+		Offset = UDim2.new(0, 0, 0, 0),
 		ShowBehindParent = false,
 		Parent = MainFrame,
 	})
 	win.WinShadow = WinShadow
 
-	-- Barra de arrastre: blanca 25%, dentro de la ventana arriba; al
-	-- minimizar sale por encima del borde para agarrarla mejor
+	-- Barra de arrastre: centrada arriba, blanca y muy transparente; al
+	-- hacer hover se vuelve opaca y crece un poco (tween). Al minimizar
+	-- sale por encima del borde para agarrarla mejor
 	local DragBar = Create("Frame", {
 		Name = "DragBar",
-		Size = UDim2.new(1, -122, 0, 5),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Size = DRAG_BAR_SIZE,
 		Position = DRAG_BAR_IN,
 		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		BackgroundTransparency = BAR_TRANSPARENCY,
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		ZIndex = 11,
 		Active = true,
@@ -1957,6 +2058,18 @@ function FlowLib:CreateWindow(opts)
 	})
 	Circle(DragBar)
 	win.DragBar = DragBar
+
+	local function dragBarHover(on)
+		if win.destroyed then return end
+		local tr = 1
+		if win.visible then tr = on and 0 or BAR_TRANSPARENCY end
+		Tween(DragBar, {
+			BackgroundTransparency = tr,
+			Size = on and DRAG_BAR_SIZE_HOVE or DRAG_BAR_SIZE,
+		}, FAST, Enum.EasingStyle.Quart)
+	end
+	DragBar.MouseEnter:Connect(function() dragBarHover(true) end)
+	DragBar.MouseLeave:Connect(function() dragBarHover(false) end)
 
 	-- Body: CanvasGroup de TODO lo visual; su GroupTransparency es el fade global
 	local Body = Create("CanvasGroup", {
@@ -1970,6 +2083,11 @@ function FlowLib:CreateWindow(opts)
 	})
 	Round(CORNER_RADIUS, Body)
 	win.Body = Body
+
+	-- registro de TODOS los elementos con fade (aparecer / cerrar)
+	win:_registerFade(Body, "GroupTransparency", 0, 1)
+	win:_registerFade(WinShadow, "Transparency", SHADOW_TRANSPARENCY, 1)
+	win:_registerFade(DragBar, "BackgroundTransparency", BAR_TRANSPARENCY, 1)
 
 	local WindowStroke = Create("UIStroke", {
 		Name = "WindowStroke",
