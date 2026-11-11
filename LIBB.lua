@@ -1,46 +1,17 @@
 --[[
-	FlowLib.lua → LIBB.lua  ·  Libreria de ventana "cristal" para los scripts Flow
-	===================================================================
+	LIBB.lua · Libreria de ventana "cristal" para los scripts Flow
 
-	El script principal deja de construir la ventana a mano: solo carga la lib
-	y va agregando elementos. La lib se encarga de todo el chrome visual
-	(fade, arrastre con inercia, minimizar, cerrar, scrollbars, tabs, binds).
-
-	Carga desde un script:
+	Carga:
 		local Lib = loadstring(game:HttpGet(
 			"https://raw.githubusercontent.com/PrinceBeebear/FlowLib/main/LIBB.lua"
 		))()
+		Lib:Singleton("MiScript")
+		local win = Lib:CreateWindow({ title = "Flow • Mi Script" })
+		local tab = win:CreateTab("General")
+		tab:AddButton { name = "Hola", callback = function() end }
 
-		local win = Lib:CreateWindow({
-			title   = "Flow • Mi Script",          -- texto del header
-			width   = 270,                          -- opcional (default 270)
-			height  = 480,                          -- opcional (default 480)
-			keybind = Enum.KeyCode.RightControl,    -- opcional: mostrar/ocultar
-			onClose = function() end,               -- tu logica de "Stop" primero
-		})
-
-		local tab = win:CreateTab("General")       -- opcional (si no, todo va directo)
-		tab:AddButton { name = "Hola", callback = function() print("hola") end }
-		tab:AddToggle { name = "Modo", default = false, callback = function(v) end }
-		tab:AddSlider { name = "Velocidad", min = 0, max = 100, default = 25, callback = function(v) end }
-		tab:AddKeybind{ name = "Tecla", default = Enum.KeyCode.F, callback = function(k) end }
-		tab:AddList   { name = "Jugadores", items = Lib:GetPlayerItems(), callback = function(item) end }
-		tab:AddDropdown{ name = "Opciones", items = {"A","B"}, callback = function(item) end }
-		tab:AddLabel  { text = "Texto informativo" }
-		tab:AddSection{ name = "Configuracion" }
-
-	Singleton (obligatorio para re-ejecutar sin duplicar ventanas):
-		Lib:Singleton("MiScript")   -- mata la instancia anterior y registra cleanup
-
-	Reglas IA-skill aplicadas aqui:
-	  · ventana estilo cristal (DropShadow + GlassBackdrop + stroke con gradiente)
-	  · fade UNIFORME via CanvasGroup.GroupTransparency (0.3s Quad Out); los
-	    contenedores intermedios y las hitboxes nunca se tween-an, asi que no
-	    aparecen "recuadros grises"
-	  · arrastre con inercia (x1.8, 0.45 Quart) limitado a pantalla
-	  · scrollbar vertical y horizontal estilo RR (track/thumb/trackHit Z 50/52/53)
-	  · espera de tecla con timeout de 30s (nunca un Wait() infinito)
-	  · singleton _G + cleanup registrado para re-ejecucion
+	Componentes: AddLabel, AddButton, AddToggle, AddSlider, AddKeybind,
+	             AddList, AddDropdown, AddSearchBox, AddSection, AddUIBind
 ]]
 
 -- ============================================================== servicios
@@ -90,8 +61,7 @@ local function Tween(obj, props, duration, style, direction)
 	return t
 end
 
--- AbsolutePosition / AbsoluteSize con guardas (robusto si el entorno no los
--- calcula aun, p.ej. GUIs recien creadas o entornos de prueba)
+-- AbsolutePosition / AbsoluteSize con guardas (entornos sin layout aun)
 local function absPos(obj)
 	local p = obj and obj.AbsolutePosition
 	if p and p.X then return p end
@@ -505,8 +475,7 @@ local function rightLabel(btn, text, color, width)
 	})
 end
 
--- Fila base (TextButton) con su etiqueta a la izquierda.
--- rightPad deja espacio para la etiqueta derecha (evita que los textos se pisen)
+-- Fila base (TextButton) con etiqueta a la izquierda; rightPad reserva la derecha
 local function makeRow(parent, order, name, height, rightPad)
 	local btn = Create("TextButton", {
 		Name = name or "Row",
@@ -538,8 +507,7 @@ local function makeRow(parent, order, name, height, rightPad)
 	return btn, label
 end
 
--- Hover / press manual (AutoButtonColor = false siempre)
--- getState() -> { base = Color3, hover = Color3, press = Color3 }
+-- Hover / press manual (AutoButtonColor = false)
 local function bindRowHover(btn, getState)
 	btn.MouseEnter:Connect(function()
 		Tween(btn, { BackgroundColor3 = getState().hover }, FAST, Enum.EasingStyle.Quart)
@@ -977,13 +945,11 @@ function Page:AddKeybind(opts)
 		return { base = COLOR.ROW, hover = COLOR.ROW_HOVER, press = COLOR.ROW_PRESS }
 	end)
 
-	-- Reasignar: espera con timeout de 30s, sin dejar ningun hilo colgado.
-	-- Escape cancela y conserva la tecla anterior.
+	-- espera de tecla con timeout de 30s; Escape cancela
 	btn.MouseButton1Click:Connect(function()
 		if binding then return end
 		binding = true
 		keyLabel.Text = "..."
-		win:SetBindPrompt("Press a key...")
 
 		local finished = false
 		local conn
@@ -993,7 +959,6 @@ function Page:AddKeybind(opts)
 			if conn then pcall(function() conn:Disconnect() end) end
 			binding = false
 			if win.destroyed then return end
-			win:SetBindPrompt("")
 			if newKey then
 				key = newKey
 				refresh()
@@ -1100,8 +1065,7 @@ function Page:AddList(opts)
 
 	local _, box = makeSearchBox(root, opts, 2)
 
-	-- host de filas: con maxHeight tiene su propio scroll (scrollbar RR),
-	-- sin maxHeight crece con el contenido y hace scroll la pagina
+	-- host de filas: con maxHeight tiene scroll propio, si no crece con la página
 	local rowsHost, rowsParent, isScroll, updateRowsScroll
 	if maxHeight > 0 then
 		rowsHost = Create("Frame", {
@@ -1498,13 +1462,7 @@ function Window:_disconnectAll()
 	self._connections = {}
 end
 
-function Window:SetBindPrompt(text)
-	if self.destroyed then return end
-	self.BindPrompt.Text = tostring(text or "")
-end
-
--- Fade uniforme: Body (CanvasGroup) + DropShadow. Nada mas se tween-a, asi
--- que los contenedores transparentes y las hitboxes jamas generan recuadros.
+-- Fade uniforme: Body (CanvasGroup) + DropShadow; nada mas se tween-a.
 function Window:SetVisible(show)
 	if self.destroyed or self.visible == show then return end
 	self.visible = show
@@ -1925,8 +1883,7 @@ function FlowLib:CreateWindow(opts)
 	})
 	win.DropShadow = DropShadow
 
-	-- Body: CanvasGroup que contiene TODO lo visual. Su GroupTransparency es
-	-- el fade global (un solo tween, cero recuadros grises).
+	-- Body: CanvasGroup de TODO lo visual; su GroupTransparency es el fade global
 	local Body = Create("CanvasGroup", {
 		Name = "Body",
 		Size = UDim2.new(1, 0, 1, 0),
@@ -1978,21 +1935,6 @@ function FlowLib:CreateWindow(opts)
 		Parent = Body,
 	})
 	win.Title = Title
-
-	local BindPrompt = Create("TextLabel", {
-		Name = "BindPrompt",
-		Size = UDim2.new(1, -20, 0, 16),
-		Position = UDim2.new(0, 10, 0, 30),
-		BackgroundTransparency = 1,
-		Text = "",
-		TextColor3 = Color3.fromRGB(220, 220, 220),
-		FontFace = FONT_MED,
-		TextSize = 12,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		ZIndex = 15,
-		Parent = Body,
-	})
-	win.BindPrompt = BindPrompt
 
 	-- Area de arrastre: ancho completo menos 90px (nunca tapa los botones)
 	local DragArea = Create("TextButton", {
@@ -2176,9 +2118,7 @@ function FlowLib:CreateWindow(opts)
 		win:Destroy()
 	end)
 
-	-- ------------------------------------------------------------ bind de la UI
-	-- Se conecta siempre: si no hay tecla inicial, AddUIBind() puede asignarla
-	-- despues y el listener ya esta escuchando.
+	-- bind de la UI: se conecta siempre (la tecla puede asignarse despues)
 	win:_track(UserInputService.InputBegan:Connect(function(input, processed)
 		if win.destroyed or not win.UIBind then return end
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
