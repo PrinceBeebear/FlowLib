@@ -890,7 +890,6 @@ function Page:AddToggle(opts)
 			ImageRectOffset = Vector2.new(15, 68),
 			ImageRectSize = Vector2.new(390, 284),
 			ScaleType = Enum.ScaleType.Fit,
-			ResampleMode = Enum.ResampleMode.Default,
 			ImageColor3 = COLOR.TEXT_DIM,
 			ImageTransparency = 0.1,
 			Parent = keyBtn,
@@ -1255,7 +1254,6 @@ function Page:AddKeybind(opts)
 		ImageRectOffset = Vector2.new(15, 68),
 		ImageRectSize = Vector2.new(390, 284),
 		ScaleType = Enum.ScaleType.Fit,
-		ResampleMode = Enum.ResampleMode.Default,
 		ImageColor3 = COLOR.TEXT_DIM,
 		Parent = btn,
 	})
@@ -2459,7 +2457,6 @@ function FlowLib:CreateWindow(opts)
 		ImageRectOffset = Vector2.new(50, 50),
 		ImageRectSize = Vector2.new(320, 320),
 		ScaleType = Enum.ScaleType.Fit,
-		ResampleMode = Enum.ResampleMode.Default,
 		ImageTransparency = 0.45,
 		BorderSizePixel = 0,
 		Active = true,
