@@ -1,3 +1,25 @@
+--[[
+	LIBB.lua · Libreria de ventana "cristal" para los scripts Flow
+
+	Carga:
+		local Lib = loadstring(game:HttpGet(
+			"https://raw.githubusercontent.com/PrinceBeebear/FlowLib/main/LIBB.lua"
+		))()
+		Lib:Singleton("MiScript")
+		local win = Lib:CreateWindow({ title = "Flow • Mi Script", width = 210, height = 150 })
+		-- tamaño: width/height o size = {w, h} (default 270x480)
+		-- minSize = {w, h}: limite de encogido al redimensionar (default 180x160)
+		local tab = win:CreateTab("General")
+		tab:AddButton { name = "Hola", callback = function() end }
+		tab:AddToggle { name = "Fly", callback = function(on) end }
+		tab:AddKeybind { name = "Tecla", default = Enum.KeyCode.X, callback = function(key) end }
+
+	Componentes: AddLabel, AddButton, AddToggle, AddSlider, AddKeybind,
+	             AddList, AddDropdown, AddSearchBox, AddSection
+	-- (AddUIBind eliminado: la ventana ya se muestra/oculta SOLO desde el script)
+]]
+
+-- ============================================================== servicios
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -109,8 +131,12 @@ local DRAG_BAR_OUT       = UDim2.new(0.5, 0, 0, -9)
 local DRAG_BAR_SIZE      = UDim2.new(0, 72, 0, 5)
 local DRAG_BAR_SIZE_HOVE = UDim2.new(0, 88, 0, 7)
 
--- Icono por defecto de las filas de bind (decal que indica "es un bind")
-local KEYBIND_ICON = "rbxassetid://133118219945599"
+-- Icono por defecto de las filas de bind (adhesivo de teclado) e icono
+-- del grip de resize. Via rbxthumb a 420x420: Roblox sirve SIEMPRE la
+-- misma resolucion, asi el recorte con ImageRect es exacto y la textura
+-- no se pixela al escalar al tamaño final
+local KEYBIND_ICON = "rbxthumb://type=Asset&id=125168489828313&w=420&h=420"
+local RESIZE_ICON = "rbxthumb://type=Asset&id=82041111650203&w=420&h=420"
 
 -- Contorno: gris oscuro, visible en el borde superior e inferior
 -- (llega hasta las esquinas y se desvanece hacia los laterales)
@@ -389,8 +415,8 @@ local function applyTabScroll(win, tabContainer, tabBar)
 		Name = "Track_Tabs",
 		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 		BackgroundTransparency = 0.95,
-		Position = UDim2.new(0, 10, 1, -6),
-		Size = UDim2.new(1, -20, 0, 4),
+		Position = UDim2.new(0, 15, 1, -6),
+		Size = UDim2.new(1, -25, 0, 4),
 		ZIndex = 5,
 		Active = true,
 		Parent = tabBar,
@@ -418,8 +444,8 @@ local function applyTabScroll(win, tabContainer, tabBar)
 	})
 
 	local function updateScroll()
-		track.Position = UDim2.new(0, 10, 1, -6)
-		track.Size = UDim2.new(1, -20, 0, 4)
+		track.Position = UDim2.new(0, 15, 1, -6)
+		track.Size = UDim2.new(1, -25, 0, 4)
 		local view = absSize(tabContainer).X
 		local content = (tabContainer.CanvasSize and tabContainer.CanvasSize.X.Offset) or 0
 		local overflow = view > 0 and content > view + 1
@@ -545,43 +571,6 @@ local function bindRowHover(btn, getState)
 	end)
 end
 
--- Luz interior para el efecto press (knob del toggle y del slider):
--- el knob se queda SOLIDO (ese es el contorno iluminado) y capsulas
--- concentricas del color de la pista desvanecen el centro: la luz
--- nace en el borde por dentro del contorno, se suaviza y se corta
--- casi tocando el centro del boton
-local function makeInnerGlow(parent)
-	local patches = {}
-	for _, spec in ipairs({
-		{ name = "GlowSoft", scale = 0.85, tr = 0.75 },
-		{ name = "GlowMid",  scale = 0.62, tr = 0.5 },
-		{ name = "GlowCore", scale = 0.4,  tr = 0.28 },
-	}) do
-		local p = Create("Frame", {
-			Name = spec.name,
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Size = UDim2.fromScale(spec.scale, spec.scale),
-			Position = UDim2.fromScale(0.5, 0.5),
-			BackgroundColor3 = Color3.fromRGB(60, 60, 60),
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			Parent = parent,
-		})
-		Round(99, p)
-		patches[#patches + 1] = { frame = p, tr = spec.tr }
-	end
-	local function set(on)
-		for _, g in ipairs(patches) do
-			Tween(g.frame, { BackgroundTransparency = on and g.tr or 1 }, FAST, Enum.EasingStyle.Quart)
-		end
-	end
-	local function setColor(c)
-		for _, g in ipairs(patches) do
-			g.frame.BackgroundColor3 = c
-		end
-	end
-	return set, setColor
-end
 
 -- Contenedor de buscador (fondo 20,20,20 transparencia 0.78, esquina 8)
 local function makeSearchBox(parent, opts, order)
@@ -597,8 +586,8 @@ local function makeSearchBox(parent, opts, order)
 
 	local box = Create("TextBox", {
 		Name = "Box",
-		Size = UDim2.new(1, -20, 1, 0),
-		Position = UDim2.new(0, 10, 0, 0),
+		Size = UDim2.new(1, -24, 1, 0),
+		Position = UDim2.new(0, 12, 0, 0),
 		BackgroundTransparency = 1,
 		Text = "",
 		PlaceholderText = (opts and opts.placeholder) or "Buscar...",
@@ -866,9 +855,6 @@ function Page:AddToggle(opts)
 		Parent = knob,
 	})
 
-	-- luz interior del knob al presionar la fila
-	local setKnobGlow, setKnobGlowColor = makeInnerGlow(knob)
-
 	-- bind inline: pildora redondeada a la izquierda del switch (4px de
 	-- hueco antes de la pista). Icono y tecla bien centrados dentro
 	local keyBtn, keyLabel, bindIcon, binding = nil, nil, nil, false
@@ -894,10 +880,17 @@ function Page:AddToggle(opts)
 		bindIcon = Create("ImageLabel", {
 			Name = "BindIcon",
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			Size = UDim2.new(0, 20, 0, 20),
+			-- recorte exacto del icono en el thumbnail 420x420 (el teclado
+			-- ocupa (15,68)-(405,352)): llena el label sin aire inutil y
+			-- sin pixelado al escalar
+			Size = UDim2.new(0, 30, 0, 22),
 			Position = UDim2.new(0.5, 0, 0.5, 0),
 			BackgroundTransparency = 1,
 			Image = KEYBIND_ICON,
+			ImageRectOffset = Vector2.new(15, 68),
+			ImageRectSize = Vector2.new(390, 284),
+			ScaleType = Enum.ScaleType.Fit,
+			ResampleMode = Enum.ResampleMode.Default,
 			ImageColor3 = COLOR.TEXT_DIM,
 			ImageTransparency = 0.1,
 			Parent = keyBtn,
@@ -954,14 +947,12 @@ function Page:AddToggle(opts)
 		value = v
 		Tween(btn, { BackgroundColor3 = getState().base }, FAST, Enum.EasingStyle.Quart)
 		Tween(switch, { BackgroundColor3 = trackColor() }, FAST, Enum.EasingStyle.Quart)
-		setKnobGlowColor(trackColor())
 		Tween(knob, { Position = UDim2.new(0, value and 37 or 19, 0.5, 0) }, FAST, Enum.EasingStyle.Quart)
 		if fire and opts.callback then opts.callback(value) end
 	end
 
 	-- estado inicial (sin tocar: knob solido; encendido: pista clara)
 	switch.BackgroundColor3 = trackColor()
-	setKnobGlowColor(trackColor())
 	if value then
 		knob.Position = UDim2.new(0, 37, 0.5, 0)
 	end
@@ -974,14 +965,12 @@ function Page:AddToggle(opts)
 	-- poco (36x24); al soltar (dentro o fuera) vuelve a quedar solido en
 	-- blanco y a su tamaño original
 	local function setLens(on)
-		-- el knob ya NO se transparenta entero: se queda solido (luz
-		-- alrededor del contorno) y solo el centro se desvanece
 		Tween(knob, {
+			BackgroundTransparency = on and 0.5 or 0,
 			Size = on and UDim2.new(0, 36, 0, 24) or UDim2.new(0, 32, 0, 20),
 		}, FAST, Enum.EasingStyle.Quart)
 		knobCorner.CornerRadius = UDim.new(0, on and 12 or 10)
 		Tween(lens, { Transparency = on and 0.1 or 1, Thickness = on and 2 or 1.4 }, FAST, Enum.EasingStyle.Quart)
-		setKnobGlow(on)
 	end
 	btn.MouseButton1Down:Connect(function() setLens(true) end)
 	btn.MouseButton1Up:Connect(function() setLens(false) end)
@@ -1130,9 +1119,9 @@ function Page:AddSlider(opts)
 		Parent = fill,
 	})
 
-	-- knob capsula estilo iPhone: al presionar/arrastrar se ve su
-	-- contorno (lente), crece un poco (26x16) y su centro se desvanece
-	-- (luz interior); al soltar vuelve a ser solido y al tamaño original
+	-- knob capsula estilo iPhone: solo mientras se presiona/arrastra su
+	-- centro queda transparente y se ve su contorno (lente) y crece un
+	-- poco (26x16); al soltar vuelve a ser solido y al tamaño original
 	local knob = Create("Frame", {
 		Name = "Knob",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1156,11 +1145,6 @@ function Page:AddSlider(opts)
 		ShowBehindParent = false,
 		Parent = knob,
 	})
-
-	-- luz interior al presionar: el knob se queda solido (luz en el
-	-- contorno) y el centro se desvanece con el color de la pista
-	local setKnobGlow, setKnobGlowColor = makeInnerGlow(knob)
-	setKnobGlowColor(Color3.fromRGB(50, 50, 50))
 
 	local lens = Create("UIStroke", {
 		Name = "Lens",
@@ -1220,12 +1204,9 @@ function Page:AddSlider(opts)
 	hit.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
-			-- al presionar: el knob NO se transparenta entero; se queda
-			-- solido (luz alrededor del contorno) y solo el centro se
-			-- desvanece (luz interior suave) + knob mas grande
-			Tween(knob, { Size = UDim2.new(0, 26, 0, 16) }, FAST, Enum.EasingStyle.Quart)
+			-- al presionar: centro transparente (lente) y knob mas grande
+			Tween(knob, { BackgroundTransparency = 0.5, Size = UDim2.new(0, 26, 0, 16) }, FAST, Enum.EasingStyle.Quart)
 			Tween(lens, { Transparency = 0.1, Thickness = 2 }, FAST, Enum.EasingStyle.Quart)
-			setKnobGlow(true)
 			applyFromInput(input)
 		end
 	end)
@@ -1237,10 +1218,9 @@ function Page:AddSlider(opts)
 	self.window:_track(UserInputService.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			if dragging then dragging = false end
-			-- al soltar: knob solido, tamaño original y luz interior apagada
-			Tween(knob, { Size = UDim2.new(0, 20, 0, 12) }, FAST, Enum.EasingStyle.Quart)
+			-- al soltar: knob solido y tamaño original otra vez (lente oculta)
+			Tween(knob, { BackgroundTransparency = 0, Size = UDim2.new(0, 20, 0, 12) }, FAST, Enum.EasingStyle.Quart)
 			Tween(lens, { Transparency = 1, Thickness = 1.4 }, FAST, Enum.EasingStyle.Quart)
-			setKnobGlow(false)
 		end
 	end))
 
@@ -1266,10 +1246,16 @@ function Page:AddKeybind(opts)
 	-- adhesivo del bind: visible solo cuando NO hay tecla (sin NONE)
 	local bindIcon = Create("ImageLabel", {
 		Name = "BindIcon",
-		Size = UDim2.new(0, 20, 0, 20),
-		Position = UDim2.new(1, -53, 0.5, -10),
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		-- mismo recorte exacto que el adhesivo inline (sin pixelado)
+		Size = UDim2.new(0, 30, 0, 22),
+		Position = UDim2.new(1, -53, 0.5, 0),
 		BackgroundTransparency = 1,
 		Image = KEYBIND_ICON,
+		ImageRectOffset = Vector2.new(15, 68),
+		ImageRectSize = Vector2.new(390, 284),
+		ScaleType = Enum.ScaleType.Fit,
+		ResampleMode = Enum.ResampleMode.Default,
 		ImageColor3 = COLOR.TEXT_DIM,
 		Parent = btn,
 	})
@@ -1763,8 +1749,9 @@ local function makePage(win, name, parent)
 
 	local group = Create("Frame", {
 		Name = "Page_" .. name,
-		Size = UDim2.new(1, -20, 1, -20),
-		Position = UDim2.new(0, 10, 0, 10),
+		-- margen izquierdo 15 = igual que el titulo (derecho se queda en 10)
+		Size = UDim2.new(1, -25, 1, -20),
+		Position = UDim2.new(0, 15, 0, 10),
 		BackgroundTransparency = 1,
 		ClipsDescendants = true,
 		Visible = false,
@@ -2026,11 +2013,11 @@ function Window:_layoutPages()
 	for i = 1, #self._pages do
 		local page = self._pages[i]
 		if hasTabs then
-			page.Group.Position = UDim2.new(0, 10, 0, 40)
-			page.Group.Size = UDim2.new(1, -20, 1, -50)
+			page.Group.Position = UDim2.new(0, 15, 0, 40)
+			page.Group.Size = UDim2.new(1, -25, 1, -50)
 		else
-			page.Group.Position = UDim2.new(0, 10, 0, 10)
-			page.Group.Size = UDim2.new(1, -20, 1, -20)
+			page.Group.Position = UDim2.new(0, 15, 0, 10)
+			page.Group.Size = UDim2.new(1, -25, 1, -20)
 		end
 		if page.UpdateScroll then page.UpdateScroll() end
 	end
@@ -2458,94 +2445,46 @@ function FlowLib:CreateWindow(opts)
 	win.CloseIcon = CloseIcon
 
 	-- ------------------------------------------------------------ resize
-	-- Esquina inferior derecha con diseño de arco redondeado tipo píldora
-	local Grip = Create("Frame", {
+	-- Esquina inferior derecha: icono de resize (imagen). Al mantenerlo
+	-- y arrastrar se redimensiona la ventana (minimo en opts.minSize).
+	-- rbxthumb 420x420 + recorte exacto del arco (50,50)-(370,370): sin
+	-- aire transparente alrededor y sin pixelado al escalar
+	local Grip = Create("ImageLabel", {
 		Name = "ResizeGrip",
 		AnchorPoint = Vector2.new(1, 1),
-		Size = UDim2.new(0, 34, 0, 34),
+		Size = UDim2.new(0, 30, 0, 30),
 		Position = UDim2.new(1, -2, 1, -2),
 		BackgroundTransparency = 1,
+		Image = RESIZE_ICON,
+		ImageRectOffset = Vector2.new(50, 50),
+		ImageRectSize = Vector2.new(320, 320),
+		ScaleType = Enum.ScaleType.Fit,
+		ResampleMode = Enum.ResampleMode.Default,
+		ImageTransparency = 0.45,
 		BorderSizePixel = 0,
 		Active = true,
 		ZIndex = 14,
 		Parent = Body,
 	})
-
-	local gripArc = {}
-	local thickness = 4 -- Grosor de la línea del icono
-	local radius = 18   -- Radio del arco
-
-	-- Generar los segmentos del arco
-	for i = 0, 90, 6 do
-		local tm = math.rad(i)
-		local seg = Create("Frame", {
-			Name = "ArcSeg",
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Size = UDim2.new(0, math.ceil(2 * radius * math.sin(math.rad(3))) + 2, 0, thickness),
-			Position = UDim2.new(0, 2 + radius * (1 - math.cos(tm)), 0, 2 + radius * (1 - math.sin(tm))),
-			Rotation = -i - 90,
-			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-			BackgroundTransparency = 0.5,
-			BorderSizePixel = 0,
-			ZIndex = 14,
-			Parent = Grip,
-		})
-		Round(99, seg)
-		gripArc[#gripArc + 1] = seg
-	end
-
-	-- Extremo 1 del arco (Punta superior / derecha)
-	local cap1 = Create("Frame", {
-		Name = "CapStart",
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Size = UDim2.new(0, thickness, 0, thickness),
-		Position = UDim2.new(0, 2 + radius, 0, 2),
-		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		BackgroundTransparency = 0.5,
-		BorderSizePixel = 0,
-		ZIndex = 14,
-		Parent = Grip,
-	})
-	Circle(cap1)
-	gripArc[#gripArc + 1] = cap1
-
-	-- Extremo 2 del arco (Punta inferior / izquierda)
-	local cap2 = Create("Frame", {
-		Name = "CapEnd",
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Size = UDim2.new(0, thickness, 0, thickness),
-		Position = UDim2.new(0, 2, 0, 2 + radius),
-		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		BackgroundTransparency = 0.5,
-		BorderSizePixel = 0,
-		ZIndex = 14,
-		Parent = Grip,
-	})
-	Circle(cap2)
-	gripArc[#gripArc + 1] = cap2
-
 	win.Grip = Grip
-	win.GripArc = gripArc
 
 	-- se declara antes de los handlers: los closures deben verla
 	local resizing, resizeStart = false, nil
 	local startW, startH, startOffsetX = 0, 0, 0
 
 	local function setGripTransparency(tr)
-		for _, seg in ipairs(gripArc) do
-			Tween(seg, { BackgroundTransparency = tr }, FAST, Enum.EasingStyle.Quart)
-		end
+		Tween(Grip, { ImageTransparency = tr }, FAST, Enum.EasingStyle.Quart)
 	end
 
 	Grip.MouseEnter:Connect(function()
 		if not win.destroyed then
-			setGripTransparency(0.25)
+			setGripTransparency(0.15)
 		end
 	end)
 	Grip.MouseLeave:Connect(function()
 		if not win.destroyed then
 			-- si sigue en resize (botón mantenido) se queda en hover
-			setGripTransparency(resizing and 0.25 or 0.5)
+			setGripTransparency(resizing and 0.15 or 0.45)
 		end
 	end)
 
@@ -2618,8 +2557,8 @@ function FlowLib:CreateWindow(opts)
 
 	local TabContainer = Create("ScrollingFrame", {
 		Name = "TabContainer",
-		Size = UDim2.new(1, -20, 1, 0),
-		Position = UDim2.new(0, 10, 0, 0),
+		Size = UDim2.new(1, -25, 1, 0),
+		Position = UDim2.new(0, 15, 0, 0),
 		BackgroundTransparency = 1,
 		ScrollBarThickness = 0,
 		ScrollingDirection = Enum.ScrollingDirection.X,
