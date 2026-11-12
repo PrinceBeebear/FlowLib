@@ -1,23 +1,3 @@
---[[
-	LIBB.lua · Libreria de ventana "cristal" para los scripts Flow
-
-	Carga:
-		local Lib = loadstring(game:HttpGet(
-			"https://raw.githubusercontent.com/PrinceBeebear/FlowLib/main/LIBB.lua"
-		))()
-		Lib:Singleton("MiScript")
-		local win = Lib:CreateWindow({ title = "Flow • Mi Script", width = 210, height = 150 })
-		-- tamaño: width/height o size = {w, h} (default 270x480)
-		local tab = win:CreateTab("General")
-		tab:AddButton { name = "Hola", callback = function() end }
-		tab:AddToggle { name = "Fly", callback = function(on) end }
-		tab:AddKeybind { name = "Tecla", default = Enum.KeyCode.X, callback = function(key) end }
-
-	Componentes: AddLabel, AddButton, AddToggle, AddSlider, AddKeybind,
-	             AddList, AddDropdown, AddSearchBox, AddSection, AddUIBind
-]]
-
--- ============================================================== servicios
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -860,8 +840,8 @@ function Page:AddToggle(opts)
 		end)
 		Create("ImageLabel", {
 			Name = "BindIcon",
-			Size = UDim2.new(0, 12, 0, 12),
-			Position = UDim2.new(0, 7, 0.5, -6),
+			Size = UDim2.new(0, 16, 0, 16),
+			Position = UDim2.new(0, 5, 0.5, -8),
 			BackgroundTransparency = 1,
 			Image = KEYBIND_ICON,
 			ImageColor3 = COLOR.TEXT_DIM,
@@ -870,8 +850,8 @@ function Page:AddToggle(opts)
 		})
 		keyLabel = Create("TextLabel", {
 			Name = "Key",
-			Size = UDim2.new(0, 24, 1, 0),
-			Position = UDim2.new(0, 21, 0, 0),
+			Size = UDim2.new(0, 27, 1, 0),
+			Position = UDim2.new(0, 23, 0, 0),
 			BackgroundTransparency = 1,
 			Text = shortKey(key),
 			TextColor3 = COLOR.TEXT_DIM,
@@ -950,6 +930,13 @@ function Page:AddToggle(opts)
 	if keyBtn then
 		keyBtn.MouseButton1Click:Connect(function()
 			if binding then return end
+			-- con tecla ya bindeada: SOLO la elimina (no pide otra tecla)
+			if key ~= nil then
+				key = nil
+				if opts.onBind then pcall(opts.onBind, nil) end
+				keyLabel.Text = "NONE"
+				return
+			end
 			binding = true
 			keyLabel.Text = "..."
 			waitForKey(win, function(newKey)
@@ -1080,8 +1067,10 @@ function Page:AddSlider(opts)
 	-- hitbox invisible mas alta que la barra: NUNCA entra al fade
 	local hit = Create("TextButton", {
 		Name = "KnobHit",
-		Size = UDim2.new(1, -24, 0, 22),
-		Position = UDim2.new(0, 12, 1, -21),
+		-- hitbox casi al borde del holder: cubre el knob incluso al llegar
+		-- al maximo (antes no se podia mantener el click en su lado derecho)
+		Size = UDim2.new(1, -4, 0, 22),
+		Position = UDim2.new(0, 2, 1, -21),
 		BackgroundTransparency = 1,
 		Text = "",
 		AutoButtonColor = false,
@@ -1166,8 +1155,8 @@ function Page:AddKeybind(opts)
 	-- icono por defecto (decal) que indica que la fila es un bind
 	Create("ImageLabel", {
 		Name = "BindIcon",
-		Size = UDim2.new(0, 14, 0, 14),
-		Position = UDim2.new(1, -70, 0.5, -7),
+		Size = UDim2.new(0, 18, 0, 18),
+		Position = UDim2.new(1, -74, 0.5, -9),
 		BackgroundTransparency = 1,
 		Image = KEYBIND_ICON,
 		ImageColor3 = COLOR.TEXT_DIM,
@@ -1199,6 +1188,14 @@ function Page:AddKeybind(opts)
 	-- espera de tecla con timeout de 30s; Escape cancela
 	btn.MouseButton1Click:Connect(function()
 		if binding then return end
+		-- con una tecla ya bindeada: SOLO la elimina (no pide otra tecla).
+		-- El siguiente click (ya sin tecla) abre de nuevo la espera de bind
+		if key ~= nil then
+			key = nil
+			if opts.onBind then pcall(opts.onBind, nil) end
+			refresh()
+			return
+		end
 		binding = true
 		keyLabel.Text = "..."
 		waitForKey(win, function(newKey)
@@ -2135,13 +2132,16 @@ function FlowLib:CreateWindow(opts)
 		UIBind = toKeyCode(opts.keybind),
 	}, Window)
 
-	-- minimo de resize configurable desde el script (opts.minSize = {w, h});
-	-- sin maximo: la ventana puede crecer sin limite de tamaño
-	local minRW, minRH = 24, 24
+	-- minimo de resize configurable desde el script (opts.minSize = {w, h}).
+	-- Default sensato: la ventana ya no se puede encoger hasta romperse
+	-- (el minimo nunca supera el tamaño inicial). Sin maximo al agrandar.
+	local minRW, minRH = 180, 160
 	if type(opts.minSize) == "table" then
-		minRW = math.max(24, tonumber(opts.minSize[1]) or 24)
-		minRH = math.max(24, tonumber(opts.minSize[2]) or 24)
+		minRW = math.max(24, tonumber(opts.minSize[1]) or 180)
+		minRH = math.max(24, tonumber(opts.minSize[2]) or 160)
 	end
+	minRW = math.min(minRW, fullSize.X.Offset)
+	minRH = math.min(minRH, fullSize.Y.Offset)
 	win.resizeMin = { w = minRW, h = minRH }
 
 	-- ------------------------------------------------------------ ScreenGui
@@ -2175,7 +2175,10 @@ function FlowLib:CreateWindow(opts)
 	-- el fade la trae junto al resto de elementos.
 	local WinShadow = Create("UIShadow", {
 		Name = "WinShadow",
-		BlurRadius = UDim.new(0.22, 0),
+		-- blur FIJO en pixeles: antes era 0.22 en escala y la sombra se
+		-- estiraba cada vez mas al agrandar la ventana (maximizar/resize);
+		-- fija en px se ajusta igual a cualquier tamaño
+		BlurRadius = UDim.new(0, 16),
 		Color = Color3.fromRGB(0, 0, 0),
 		Transparency = 1,
 		Offset = UDim2.new(0, 0, 0, 0),
@@ -2349,61 +2352,52 @@ function FlowLib:CreateWindow(opts)
 	win.CloseIcon = CloseIcon
 
 	-- ------------------------------------------------------------ resize
-	-- Linea vectorial con puntas circulares: trazo diagonal fino a -45°
-	-- con extremos redondos, SOLO en la esquina inferior derecha y
-	-- pequeña. Al mantenerla y arrastrar se redimensiona la ventana.
+	-- Arco que imita la esquina redondeada de la ventana: ralla curviada
+	-- fina y paralela al borde de la esquina inferior derecha. Al
+	-- mantenerla y arrastrar se redimensiona la ventana.
 	-- Minimo configurable desde CreateWindow (opts.minSize); sin maximo
 	local Grip = Create("Frame", {
 		Name = "ResizeGrip",
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Size = UDim2.new(0, 26, 0, 26),
-		Position = UDim2.new(1, -20, 1, -20),
+		AnchorPoint = Vector2.new(1, 1),
+		Size = UDim2.new(0, 34, 0, 34),
+		Position = UDim2.new(1, -2, 1, -2),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Active = true,
 		ZIndex = 14,
 		Parent = Body,
 	})
-	local gripLine = Create("Frame", {
-		Name = "GripLine",
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Size = UDim2.new(0, 30, 0, 3),
-		Position = UDim2.new(0.5, 0, 0.5, 0),
-		Rotation = -45,
-		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		BackgroundTransparency = 0.7,
-		BorderSizePixel = 0,
-		ZIndex = 14,
-		Parent = Grip,
-	})
-	Round(99, gripLine)
-	local gripTips = {}
-	for _, xScale in ipairs({ 0, 1 }) do
-		local tip = Create("Frame", {
-			Name = "Tip",
+	-- arco por segmentos (sin assets): barras redondeadas tangentes a la
+	-- curva de la esquina; mismo centro y estilo que la esquina de la
+	-- ventana (radio 24) y 5px por dentro del borde
+	local gripArc = {}
+	for i = 0, 75, 15 do
+		local tm = math.rad(i + 7.5)
+		local seg = Create("Frame", {
+			Name = "ArcSeg",
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			Size = UDim2.new(0, 5, 0, 5),
-			Position = UDim2.new(xScale, 0, 0.5, 0),
+			Size = UDim2.new(0, 2 * 19 * math.sin(math.rad(7.5)) + 1.5, 0, 2.5),
+			Position = UDim2.new(0, 12 + 19 * math.cos(tm), 0, 12 + 19 * math.sin(tm)),
+			Rotation = i + 97.5,
 			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 			BackgroundTransparency = 0.7,
 			BorderSizePixel = 0,
-			ZIndex = 15,
-			Parent = gripLine,
+			ZIndex = 14,
+			Parent = Grip,
 		})
-		Round(99, tip)
-		gripTips[#gripTips + 1] = tip
+		Round(99, seg)
+		gripArc[#gripArc + 1] = seg
 	end
 	win.Grip = Grip
-	win.GripLine = gripLine
+	win.GripArc = gripArc
 
 	-- se declara antes de los handlers: los closures deben verla
 	local resizing, resizeStart = false, nil
 	local startW, startH, startOffsetX = 0, 0, 0
 
 	local function setGripTransparency(tr)
-		Tween(gripLine, { BackgroundTransparency = tr }, FAST, Enum.EasingStyle.Quart)
-		for _, tip in ipairs(gripTips) do
-			Tween(tip, { BackgroundTransparency = tr }, FAST, Enum.EasingStyle.Quart)
+		for _, seg in ipairs(gripArc) do
+			Tween(seg, { BackgroundTransparency = tr }, FAST, Enum.EasingStyle.Quart)
 		end
 	end
 
