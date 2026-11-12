@@ -355,8 +355,8 @@ local function applyTabScroll(win, tabContainer, tabBar)
 		Name = "Track_Tabs",
 		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 		BackgroundTransparency = 0.95,
-		Position = UDim2.new(0, 15, 1, -6),
-		Size = UDim2.new(1, -25, 0, 4),
+		Position = UDim2.new(0, 18, 1, -6),
+		Size = UDim2.new(1, -28, 0, 4),
 		ZIndex = 5,
 		Active = true,
 		Parent = tabBar,
@@ -384,8 +384,8 @@ local function applyTabScroll(win, tabContainer, tabBar)
 	})
 
 	local function updateScroll()
-		track.Position = UDim2.new(0, 15, 1, -6)
-		track.Size = UDim2.new(1, -25, 0, 4)
+		track.Position = UDim2.new(0, 18, 1, -6)
+		track.Size = UDim2.new(1, -28, 0, 4)
 		local view = absSize(tabContainer).X
 		local content = (tabContainer.CanvasSize and tabContainer.CanvasSize.X.Offset) or 0
 		local overflow = view > 0 and content > view + 1
@@ -480,7 +480,7 @@ local function makeRow(parent, order, name, height, rightPad)
 	local label = Create("TextLabel", {
 		Name = "Label",
 		Size = UDim2.new(1, -(rightPad or 24), 1, 0),
-		Position = UDim2.new(0, 12, 0, 0),
+		Position = UDim2.new(0, 14, 0, 0),
 		BackgroundTransparency = 1,
 		Text = name or "",
 		TextColor3 = COLOR.TEXT,
@@ -521,8 +521,8 @@ local function makeSearchBox(parent, opts, order)
 
 	local box = Create("TextBox", {
 		Name = "Box",
-		Size = UDim2.new(1, -24, 1, 0),
-		Position = UDim2.new(0, 12, 0, 0),
+		Size = UDim2.new(1, -28, 1, 0),
+		Position = UDim2.new(0, 14, 0, 0),
 		BackgroundTransparency = 1,
 		Text = "",
 		PlaceholderText = (opts and opts.placeholder) or "Buscar...",
@@ -552,19 +552,19 @@ local function buildListRow(parent, item, opts, order, isSelected, onSelect)
 	})
 	Round(ROW_RADIUS, btn)
 
-	local textX = 12
+	local textX = 14
 	local icon = resolveIcon(item, opts)
 	if icon then
 		local img = Create("ImageLabel", {
 			Name = "Thumb",
 			Size = UDim2.new(0, 26, 0, 26),
-			Position = UDim2.new(0, 6, 0.5, -13),
+			Position = UDim2.new(0, 8, 0.5, -13),
 			BackgroundColor3 = Color3.fromRGB(40, 40, 40),
 			Image = icon,
 			Parent = btn,
 		})
 		Circle(img)
-		textX = 38
+		textX = 40
 	end
 
 	if item.subtitle then
@@ -971,8 +971,8 @@ function Page:AddSlider(opts)
 
 	Create("TextLabel", {
 		Name = "Name",
-		Size = UDim2.new(1, -70, 0, 14),
-		Position = UDim2.new(0, 12, 0, 0),
+		Size = UDim2.new(1, -72, 0, 14),
+		Position = UDim2.new(0, 14, 0, 0),
 		BackgroundTransparency = 1,
 		Text = tostring(opts.name or ""),
 		TextColor3 = COLOR.TEXT,
@@ -998,8 +998,8 @@ function Page:AddSlider(opts)
 
 	local track = Create("Frame", {
 		Name = "Track",
-		Size = UDim2.new(1, -24, 0, 6),
-		Position = UDim2.new(0, 12, 1, -17),
+		Size = UDim2.new(1, -28, 0, 6),
+		Position = UDim2.new(0, 14, 1, -17),
 		BackgroundColor3 = Color3.fromRGB(50, 50, 50),
 		BackgroundTransparency = 0,
 		ClipsDescendants = false,
@@ -1481,13 +1481,13 @@ function Page:AddDropdown(opts)
 	Round(ROW_RADIUS, panel)
 
 	local _, box = makeSearchBox(panel, opts, 1)
-	box.Position = UDim2.new(0, 10, 0, 6)
-	box.Size = UDim2.new(1, -20, 0, 20)
+	box.Position = UDim2.new(0, 12, 0, 6)
+	box.Size = UDim2.new(1, -24, 0, 20)
 
 	local listScroll = Create("ScrollingFrame", {
 		Name = "ListScroll",
 		Size = UDim2.new(1, -16, 1, -40),
-		Position = UDim2.new(0, 8, 0, 34),
+		Position = UDim2.new(0, 10, 0, 34),
 		BackgroundTransparency = 1,
 		ScrollBarThickness = 0,
 		BorderSizePixel = 0,
@@ -1634,8 +1634,8 @@ local function makePage(win, name, parent)
 
 	local group = Create("Frame", {
 		Name = "Page_" .. name,
-		Size = UDim2.new(1, -25, 1, -20),
-		Position = UDim2.new(0, 15, 0, 10),
+		Size = UDim2.new(1, -28, 1, -20),
+		Position = UDim2.new(0, 18, 0, 10),
 		BackgroundTransparency = 1,
 		ClipsDescendants = true,
 		Visible = false,
@@ -1654,7 +1654,7 @@ local function makePage(win, name, parent)
 		ZIndex = 5,
 		Parent = group,
 	})
-	Create("UIPadding", { PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 8), Parent = scroll })
+	Create("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 8), Parent = scroll })
 
 	local layout = Create("UIListLayout", {
 		Padding = UDim.new(0, 6),
@@ -1883,11 +1883,11 @@ function Window:_layoutPages()
 	for i = 1, #self._pages do
 		local page = self._pages[i]
 		if hasTabs then
-			page.Group.Position = UDim2.new(0, 15, 0, 40)
-			page.Group.Size = UDim2.new(1, -25, 1, -50)
+			page.Group.Position = UDim2.new(0, 18, 0, 40)
+			page.Group.Size = UDim2.new(1, -28, 1, -50)
 		else
-			page.Group.Position = UDim2.new(0, 15, 0, 10)
-			page.Group.Size = UDim2.new(1, -25, 1, -20)
+			page.Group.Position = UDim2.new(0, 18, 0, 10)
+			page.Group.Size = UDim2.new(1, -28, 1, -20)
 		end
 		if page.UpdateScroll then page.UpdateScroll() end
 	end
@@ -2220,7 +2220,7 @@ function FlowLib:CreateWindow(opts)
 	local Title = Create("TextLabel", {
 		Name = "Title",
 		Size = UDim2.new(1, -90, 0, HEADER_H),
-		Position = UDim2.new(0, 15, 0, 0),
+		Position = UDim2.new(0, 18, 0, 0),
 		BackgroundTransparency = 1,
 		Text = title,
 		TextColor3 = COLOR.TEXT,
@@ -2377,8 +2377,8 @@ function FlowLib:CreateWindow(opts)
 
 	local TabContainer = Create("ScrollingFrame", {
 		Name = "TabContainer",
-		Size = UDim2.new(1, -25, 1, 0),
-		Position = UDim2.new(0, 15, 0, 0),
+		Size = UDim2.new(1, -28, 1, 0),
+		Position = UDim2.new(0, 18, 0, 0),
 		BackgroundTransparency = 1,
 		ScrollBarThickness = 0,
 		ScrollingDirection = Enum.ScrollingDirection.X,
