@@ -22,6 +22,7 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
+local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -93,7 +94,7 @@ local COLOR = {
 	TEXT      = Color3.fromRGB(255, 255, 255),
 	TEXT_DIM  = Color3.fromRGB(175, 175, 175),
 	STROKE    = Color3.fromRGB(210, 210, 225),
-	BORDER    = Color3.fromRGB(205, 205, 205),
+	BORDER    = Color3.fromRGB(72, 72, 72),
 	GLOW      = Color3.fromRGB(205, 205, 205),
 	ACCENT    = Color3.fromRGB(100, 100, 100),
 	DANGER    = Color3.fromRGB(255, 60, 60),
@@ -131,8 +132,8 @@ local DRAG_BAR_SIZE_HOVE = UDim2.new(0, 88, 0, 7)
 -- Icono por defecto de las filas de bind (decal que indica "es un bind")
 local KEYBIND_ICON = "rbxassetid://133118219945599"
 
--- Contorno: blanco suave casi gris, visible en el borde superior e
--- inferior (llega hasta las esquinas y se desvanece hacia los laterales)
+-- Contorno: gris oscuro, visible en el borde superior e inferior
+-- (llega hasta las esquinas y se desvanece hacia los laterales)
 local STROKE_GRADIENT = NumberSequence.new({
 	NumberSequenceKeypoint.new(0, 0.4),
 	NumberSequenceKeypoint.new(0.14, 1),
@@ -282,8 +283,10 @@ end
 -- ============================================================== scrollbars
 -- Scrollbar vertical personalizada estilo RR (track 50 / trackHit 52 / thumb 53).
 -- `contentFn` devuelve la altura REAL del contenido (UIListLayout) para decidir
--- el overflow: si no se pasa, se usa el CanvasSize (que lleva padding extra)
-local function applyVerticalScroll(win, scrollFrame, parentFrame, topOffset, bottomOffset, contentFn)
+-- el overflow: si no se pasa, se usa el CanvasSize (que lleva padding extra).
+-- `reclaimWidth` (opcional): si el contenido NO desborda, el scroll ensancha
+-- para que el contenido aproveche el ancho reservado a la scrollbar (13px)
+local function applyVerticalScroll(win, scrollFrame, parentFrame, topOffset, bottomOffset, contentFn, reclaimWidth)
 	scrollFrame.ScrollBarThickness = 0
 
 	local track = Create("Frame", {
@@ -333,6 +336,14 @@ local function applyVerticalScroll(win, scrollFrame, parentFrame, topOffset, bot
 		local overflow = view > 0 and content > view + 1
 		track.Visible = overflow
 		thumb.Visible = overflow
+		-- sin scrollbar: el espacio reservado a la derecha (SCROLL_W +
+		-- SCROLL_GAP) se reclama para el contenido
+		if reclaimWidth then
+			local wantOffset = overflow and -(SCROLL_W + SCROLL_GAP) or 0
+			if scrollFrame.Size.X.Offset ~= wantOffset then
+				scrollFrame.Size = UDim2.new(1, wantOffset, 1, 0)
+			end
+		end
 		if not overflow then return end
 
 		local trackH = absSize(track).Y
@@ -814,7 +825,7 @@ function Page:AddToggle(opts)
 		ZIndex = 2,
 		Parent = switch,
 	})
-	Round(10, knob)
+	local knobCorner = Round(10, knob)
 
 	local lens = Create("UIStroke", {
 		Name = "Lens",
@@ -825,8 +836,8 @@ function Page:AddToggle(opts)
 		Parent = knob,
 	})
 
-	-- bind inline: icono + tecla en un TextButton propio a la izquierda
-	-- del switch (4px de hueco antes de la pista)
+	-- bind inline: pildora redondeada a la izquierda del switch (4px de
+	-- hueco antes de la pista). Icono y tecla bien centrados dentro
 	local keyBtn, keyLabel, binding = nil, nil, false
 	if key then
 		keyBtn = Create("TextButton", {
@@ -834,24 +845,33 @@ function Page:AddToggle(opts)
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Size = UDim2.new(0, 52, 1, -12),
 			Position = UDim2.new(1, -98, 0.5, 0),
-			BackgroundTransparency = 1,
+			BackgroundColor3 = Color3.fromRGB(48, 48, 48),
+			BackgroundTransparency = 0,
 			Text = "",
 			AutoButtonColor = false,
 			Parent = btn,
 		})
+		Round(12, keyBtn)
+		keyBtn.MouseEnter:Connect(function()
+			Tween(keyBtn, { BackgroundColor3 = Color3.fromRGB(66, 66, 66) }, FAST, Enum.EasingStyle.Quart)
+		end)
+		keyBtn.MouseLeave:Connect(function()
+			Tween(keyBtn, { BackgroundColor3 = Color3.fromRGB(48, 48, 48) }, FAST, Enum.EasingStyle.Quart)
+		end)
 		Create("ImageLabel", {
 			Name = "BindIcon",
 			Size = UDim2.new(0, 12, 0, 12),
-			Position = UDim2.new(0, 6, 0.5, -6),
+			Position = UDim2.new(0, 7, 0.5, -6),
 			BackgroundTransparency = 1,
 			Image = KEYBIND_ICON,
 			ImageColor3 = COLOR.TEXT_DIM,
+			ImageTransparency = 0.1,
 			Parent = keyBtn,
 		})
 		keyLabel = Create("TextLabel", {
 			Name = "Key",
-			Size = UDim2.new(0, 26, 1, 0),
-			Position = UDim2.new(0, 20, 0, 0),
+			Size = UDim2.new(0, 24, 1, 0),
+			Position = UDim2.new(0, 21, 0, 0),
 			BackgroundTransparency = 1,
 			Text = shortKey(key),
 			TextColor3 = COLOR.TEXT_DIM,
@@ -895,10 +915,15 @@ function Page:AddToggle(opts)
 		apply(not value, true)
 	end)
 
-	-- lente SOLO mientras se presiona la fila: al soltar (dentro o fuera)
-	-- el knob vuelve a quedar solido en blanco y el contorno se oculta
+	-- lente SOLO mientras se presiona la fila: el knob ademas crece un
+	-- poco (36x24); al soltar (dentro o fuera) vuelve a quedar solido en
+	-- blanco y a su tamaño original
 	local function setLens(on)
-		Tween(knob, { BackgroundTransparency = on and 1 or 0 }, FAST, Enum.EasingStyle.Quart)
+		Tween(knob, {
+			BackgroundTransparency = on and 1 or 0,
+			Size = on and UDim2.new(0, 36, 0, 24) or UDim2.new(0, 32, 0, 20),
+		}, FAST, Enum.EasingStyle.Quart)
+		knobCorner.CornerRadius = UDim.new(0, on and 12 or 10)
 		Tween(lens, { Transparency = on and 0.15 or 1 }, FAST, Enum.EasingStyle.Quart)
 	end
 	btn.MouseButton1Down:Connect(function() setLens(true) end)
@@ -1007,13 +1032,14 @@ function Page:AddSlider(opts)
 		Parent = holder,
 	})
 
-	-- track: fondo transparente (nunca se tween-a) + fill + knob capsula
+	-- track: pista visible bajo el relleno (marca el porcentaje recorrido,
+	-- igual que la scrollbar vertical) + fill + knob capsula
 	local track = Create("Frame", {
 		Name = "Track",
 		Size = UDim2.new(1, -24, 0, 6),
 		Position = UDim2.new(0, 12, 1, -17),
-		BackgroundColor3 = Color3.fromRGB(40, 40, 40),
-		BackgroundTransparency = 1,
+		BackgroundColor3 = Color3.fromRGB(50, 50, 50),
+		BackgroundTransparency = 0,
 		ClipsDescendants = false,
 		Parent = holder,
 	})
@@ -1028,8 +1054,8 @@ function Page:AddSlider(opts)
 	Circle(fill)
 
 	-- knob capsula estilo iPhone: solo mientras se presiona/arrastra su
-	-- centro queda transparente y se ve su contorno (lente); al soltar
-	-- vuelve a ser solido en blanco
+	-- centro queda transparente y se ve su contorno (lente) y crece un
+	-- poco (26x16); al soltar vuelve a ser solido y al tamaño original
 	local knob = Create("Frame", {
 		Name = "Knob",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1098,8 +1124,8 @@ function Page:AddSlider(opts)
 	hit.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
-			-- al presionar: centro transparente, solo el contorno (lente)
-			Tween(knob, { BackgroundTransparency = 1 }, FAST, Enum.EasingStyle.Quart)
+			-- al presionar: centro transparente (lente) y knob mas grande
+			Tween(knob, { BackgroundTransparency = 1, Size = UDim2.new(0, 26, 0, 16) }, FAST, Enum.EasingStyle.Quart)
 			Tween(lens, { Transparency = 0.15 }, FAST, Enum.EasingStyle.Quart)
 			applyFromInput(input)
 		end
@@ -1112,8 +1138,8 @@ function Page:AddSlider(opts)
 	self.window:_track(UserInputService.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			if dragging then dragging = false end
-			-- al soltar: knob solido blanco otra vez (lente oculta)
-			Tween(knob, { BackgroundTransparency = 0 }, FAST, Enum.EasingStyle.Quart)
+			-- al soltar: knob solido y tamaño original otra vez (lente oculta)
+			Tween(knob, { BackgroundTransparency = 0, Size = UDim2.new(0, 20, 0, 12) }, FAST, Enum.EasingStyle.Quart)
 			Tween(lens, { Transparency = 1 }, FAST, Enum.EasingStyle.Quart)
 		end
 	end))
@@ -1655,7 +1681,7 @@ local function makePage(win, name, parent)
 	self.Layout = layout
 	self.UpdateScroll = applyVerticalScroll(win, scroll, group, 0, 10, function()
 		return contentHeight(layout)
-	end)
+	end, true)
 	return self
 end
 
@@ -1726,6 +1752,8 @@ function Window:ToggleMinimize()
 		pcall(function() self._dragTween:Cancel() end)
 		self._dragTween = nil
 	end
+	-- aplica lo pendiente para no pisar el tween de tamaño con un target viejo
+	self:_flushPending()
 
 	self.minimized = not self.minimized
 	local info = TweenInfo.new(FAST, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
@@ -1802,6 +1830,9 @@ function Window:_dragBegan(input)
 	end
 	if self._dragging then return end
 
+	-- aplica cualquier posicion pendiente antes de leer la actual
+	self:_flushPending()
+
 	self._dragging = true
 	self._dragStart = input.Position
 
@@ -1832,14 +1863,34 @@ function Window:_dragMove(input)
 	self._lastMousePos = currentMousePos
 
 	local delta = Vector2.new(input.Position.X - self._dragStart.X, input.Position.Y - self._dragStart.Y)
-	self.MainFrame.Position = self:_clampPosition(
+	-- NO se escribe Position aqui: se acumula y se aplica UNA vez por frame
+	-- (RenderStepped). Escribir en cada evento InputChanged re-renderiza el
+	-- CanvasGroup completo y provoca bajones de FPS al arrastrar
+	self._dragTarget = self:_clampPosition(
 		self._dragStartPos.X.Offset + delta.X,
 		self._dragStartPos.Y.Offset + delta.Y
 	)
 end
 
+-- Aplica en un solo paso todo lo pendiente del frame (arrastre y resize)
+function Window:_flushPending()
+	if self._dragTarget then
+		self.MainFrame.Position = self._dragTarget
+		self._dragTarget = nil
+	end
+	if self._resizeTarget then
+		local t = self._resizeTarget
+		self._resizeTarget = nil
+		self.MainFrame.Position = t.position
+		self.MainFrame.Size = t.size
+		self.fullSize = t.size
+		self.minSize = UDim2.new(0, t.size.X.Offset, 0, HEADER_H)
+	end
+end
+
 -- Al soltar: deslizamiento x1.8 con tween 0.45 Quart (inercia)
 function Window:_dragEnd()
+	self:_flushPending()
 	local screen = absSize(self.ScreenGui)
 	local curX = (self.MainFrame.Position.X.Scale * screen.X) + self.MainFrame.Position.X.Offset
 	local curY = (self.MainFrame.Position.Y.Scale * screen.Y) + self.MainFrame.Position.Y.Offset
@@ -2078,8 +2129,20 @@ function FlowLib:CreateWindow(opts)
 		_dragStart = Vector2.new(0, 0),
 		_lastMousePos = Vector2.new(0, 0),
 		_dragStartPos = UDim2.new(0, 0, 0, 0),
+		_dragTarget = nil,
+		_resizeTarget = nil,
+		resizeMin = nil, -- se calcula abajo desde opts.minSize
 		UIBind = toKeyCode(opts.keybind),
 	}, Window)
+
+	-- minimo de resize configurable desde el script (opts.minSize = {w, h});
+	-- sin maximo: la ventana puede crecer sin limite de tamaño
+	local minRW, minRH = 24, 24
+	if type(opts.minSize) == "table" then
+		minRW = math.max(24, tonumber(opts.minSize[1]) or 24)
+		minRH = math.max(24, tonumber(opts.minSize[2]) or 24)
+	end
+	win.resizeMin = { w = minRW, h = minRH }
 
 	-- ------------------------------------------------------------ ScreenGui
 	local ScreenGui = Create("ScreenGui", {
@@ -2286,38 +2349,73 @@ function FlowLib:CreateWindow(opts)
 	win.CloseIcon = CloseIcon
 
 	-- ------------------------------------------------------------ resize
-	-- Ralla diagonal redondeada (capsula a -45°) en la esquina inferior
-	-- derecha: al mantenerla y arrastrar se redimensiona la ventana.
-	-- Tamaño libre: sin minimo ni maximo (piso de 24px para no perderla)
+	-- Linea vectorial con puntas circulares: trazo diagonal fino a -45°
+	-- con extremos redondos, SOLO en la esquina inferior derecha y
+	-- pequeña. Al mantenerla y arrastrar se redimensiona la ventana.
+	-- Minimo configurable desde CreateWindow (opts.minSize); sin maximo
 	local Grip = Create("Frame", {
 		Name = "ResizeGrip",
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Size = UDim2.new(0, 46, 0, 7),
-		Position = UDim2.new(1, -34, 1, -34),
-		Rotation = -45,
-		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-		BackgroundTransparency = 0.7,
+		Size = UDim2.new(0, 26, 0, 26),
+		Position = UDim2.new(1, -20, 1, -20),
+		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		Active = true,
 		ZIndex = 14,
 		Parent = Body,
 	})
-	Circle(Grip)
+	local gripLine = Create("Frame", {
+		Name = "GripLine",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.new(0, 30, 0, 3),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Rotation = -45,
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = 0.7,
+		BorderSizePixel = 0,
+		ZIndex = 14,
+		Parent = Grip,
+	})
+	Round(99, gripLine)
+	local gripTips = {}
+	for _, xScale in ipairs({ 0, 1 }) do
+		local tip = Create("Frame", {
+			Name = "Tip",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.new(0, 5, 0, 5),
+			Position = UDim2.new(xScale, 0, 0.5, 0),
+			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+			BackgroundTransparency = 0.7,
+			BorderSizePixel = 0,
+			ZIndex = 15,
+			Parent = gripLine,
+		})
+		Round(99, tip)
+		gripTips[#gripTips + 1] = tip
+	end
 	win.Grip = Grip
+	win.GripLine = gripLine
 
 	-- se declara antes de los handlers: los closures deben verla
 	local resizing, resizeStart = false, nil
 	local startW, startH, startOffsetX = 0, 0, 0
 
+	local function setGripTransparency(tr)
+		Tween(gripLine, { BackgroundTransparency = tr }, FAST, Enum.EasingStyle.Quart)
+		for _, tip in ipairs(gripTips) do
+			Tween(tip, { BackgroundTransparency = tr }, FAST, Enum.EasingStyle.Quart)
+		end
+	end
+
 	Grip.MouseEnter:Connect(function()
 		if not win.destroyed then
-			Tween(Grip, { BackgroundTransparency = 0.5 }, FAST, Enum.EasingStyle.Quart)
+			setGripTransparency(0.5)
 		end
 	end)
 	Grip.MouseLeave:Connect(function()
 		if not win.destroyed then
 			-- si sigue en resize (botón mantenido) se queda en hover
-			Tween(Grip, { BackgroundTransparency = resizing and 0.5 or 0.7 }, FAST, Enum.EasingStyle.Quart)
+			setGripTransparency(resizing and 0.5 or 0.7)
 		end
 	end)
 
@@ -2339,21 +2437,26 @@ function FlowLib:CreateWindow(opts)
 		if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
 			return
 		end
-		-- sin minimo ni maximo: solo un piso de 24px para no perderla
-		local w = math.max(24, math.floor(startW + (input.Position.X - resizeStart.X)))
-		local h = math.max(24, math.floor(startH + (input.Position.Y - resizeStart.Y)))
+		-- minimo configurable (opts.minSize / win.resizeMin); sin maximo
+		local rmin = win.resizeMin or { w = 24, h = 24 }
+		local w = math.max(rmin.w, math.floor(startW + (input.Position.X - resizeStart.X)))
+		local h = math.max(rmin.h, math.floor(startH + (input.Position.Y - resizeStart.Y)))
 		-- ancla (0.5, 0): compensar solo X para que el borde izquierdo
 		-- quede fijo; Y no se toca (la ventana crece hacia abajo)
+		-- NO se escribe Size/Position aqui: se aplica UNA vez por frame
+		-- (RenderStepped) para no re-renderizar el CanvasGroup en cada evento
 		local pos = MainFrame.Position
-		MainFrame.Position = UDim2.new(pos.X.Scale, startOffsetX + math.floor((w - startW) / 2), pos.Y.Scale, pos.Y.Offset)
-		MainFrame.Size = UDim2.new(0, w, 0, h)
-		win.fullSize = UDim2.new(0, w, 0, h)
-		win.minSize = UDim2.new(0, w, 0, HEADER_H)
+		win._resizeTarget = {
+			position = UDim2.new(pos.X.Scale, startOffsetX + math.floor((w - startW) / 2), pos.Y.Scale, pos.Y.Offset),
+			size = UDim2.new(0, w, 0, h),
+		}
 	end))
 
 	win:_track(UserInputService.InputEnded:Connect(function(input)
 		if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and resizing then
 			resizing = false
+			-- aplica el ultimo tamaño pendiente antes de re-medir
+			win:_flushPending()
 			-- el contenido se re-mide contra el tamaño nuevo
 			for _, page in ipairs(win._pages) do
 				if page.UpdateScroll then page.UpdateScroll() end
@@ -2453,6 +2556,13 @@ function FlowLib:CreateWindow(opts)
 			win._dragging = false
 			win:_dragEnd()
 		end
+	end))
+	-- la posicion/tamaño acumulados se aplican UNA vez por frame: escribir
+	-- Position/Size en cada evento InputChanged re-renderiza el CanvasGroup
+	-- completo y da bajones de FPS al arrastrar o redimensionar
+	win:_track(RunService.RenderStepped:Connect(function()
+		if win.destroyed then return end
+		win:_flushPending()
 	end))
 
 	-- ------------------------------------------------------------ botones
