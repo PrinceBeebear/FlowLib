@@ -545,6 +545,44 @@ local function bindRowHover(btn, getState)
 	end)
 end
 
+-- Luz interior para el efecto press (knob del toggle y del slider):
+-- el knob se queda SOLIDO (ese es el contorno iluminado) y capsulas
+-- concentricas del color de la pista desvanecen el centro: la luz
+-- nace en el borde por dentro del contorno, se suaviza y se corta
+-- casi tocando el centro del boton
+local function makeInnerGlow(parent)
+	local patches = {}
+	for _, spec in ipairs({
+		{ name = "GlowSoft", scale = 0.85, tr = 0.75 },
+		{ name = "GlowMid",  scale = 0.62, tr = 0.5 },
+		{ name = "GlowCore", scale = 0.4,  tr = 0.28 },
+	}) do
+		local p = Create("Frame", {
+			Name = spec.name,
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.fromScale(spec.scale, spec.scale),
+			Position = UDim2.fromScale(0.5, 0.5),
+			BackgroundColor3 = Color3.fromRGB(60, 60, 60),
+			BackgroundTransparency = 1,
+			BorderSizePixel = 0,
+			Parent = parent,
+		})
+		Round(99, p)
+		patches[#patches + 1] = { frame = p, tr = spec.tr }
+	end
+	local function set(on)
+		for _, g in ipairs(patches) do
+			Tween(g.frame, { BackgroundTransparency = on and g.tr or 1 }, FAST, Enum.EasingStyle.Quart)
+		end
+	end
+	local function setColor(c)
+		for _, g in ipairs(patches) do
+			g.frame.BackgroundColor3 = c
+		end
+	end
+	return set, setColor
+end
+
 -- Contenedor de buscador (fondo 20,20,20 transparencia 0.78, esquina 8)
 local function makeSearchBox(parent, opts, order)
 	local container = Create("Frame", {
@@ -795,6 +833,18 @@ function Page:AddToggle(opts)
 	})
 	Round(13, switch)
 
+	-- sombra del switch: UIShadow con blur FIJO en pixeles (igual que
+	-- la ventana, a escala pequeña) para dar profundidad al boton
+	Create("UIShadow", {
+		Name = "SwitchShadow",
+		BlurRadius = UDim.new(0, 8),
+		Color = Color3.fromRGB(0, 0, 0),
+		Transparency = 0.72,
+		Offset = UDim2.new(0, 0, 0, 0),
+		ShowBehindParent = false,
+		Parent = switch,
+	})
+
 	local knob = Create("Frame", {
 		Name = "Knob",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -815,6 +865,9 @@ function Page:AddToggle(opts)
 		Transparency = 1,
 		Parent = knob,
 	})
+
+	-- luz interior del knob al presionar la fila
+	local setKnobGlow, setKnobGlowColor = makeInnerGlow(knob)
 
 	-- bind inline: pildora redondeada a la izquierda del switch (4px de
 	-- hueco antes de la pista). Icono y tecla bien centrados dentro
@@ -901,12 +954,14 @@ function Page:AddToggle(opts)
 		value = v
 		Tween(btn, { BackgroundColor3 = getState().base }, FAST, Enum.EasingStyle.Quart)
 		Tween(switch, { BackgroundColor3 = trackColor() }, FAST, Enum.EasingStyle.Quart)
+		setKnobGlowColor(trackColor())
 		Tween(knob, { Position = UDim2.new(0, value and 37 or 19, 0.5, 0) }, FAST, Enum.EasingStyle.Quart)
 		if fire and opts.callback then opts.callback(value) end
 	end
 
 	-- estado inicial (sin tocar: knob solido; encendido: pista clara)
 	switch.BackgroundColor3 = trackColor()
+	setKnobGlowColor(trackColor())
 	if value then
 		knob.Position = UDim2.new(0, 37, 0.5, 0)
 	end
@@ -919,12 +974,14 @@ function Page:AddToggle(opts)
 	-- poco (36x24); al soltar (dentro o fuera) vuelve a quedar solido en
 	-- blanco y a su tamaño original
 	local function setLens(on)
+		-- el knob ya NO se transparenta entero: se queda solido (luz
+		-- alrededor del contorno) y solo el centro se desvanece
 		Tween(knob, {
-			BackgroundTransparency = on and 0.5 or 0,
 			Size = on and UDim2.new(0, 36, 0, 24) or UDim2.new(0, 32, 0, 20),
 		}, FAST, Enum.EasingStyle.Quart)
 		knobCorner.CornerRadius = UDim.new(0, on and 12 or 10)
 		Tween(lens, { Transparency = on and 0.1 or 1, Thickness = on and 2 or 1.4 }, FAST, Enum.EasingStyle.Quart)
+		setKnobGlow(on)
 	end
 	btn.MouseButton1Down:Connect(function() setLens(true) end)
 	btn.MouseButton1Up:Connect(function() setLens(false) end)
@@ -1061,9 +1118,21 @@ function Page:AddSlider(opts)
 	})
 	Circle(fill)
 
-	-- knob capsula estilo iPhone: solo mientras se presiona/arrastra su
-	-- centro queda transparente y se ve su contorno (lente) y crece un
-	-- poco (26x16); al soltar vuelve a ser solido y al tamaño original
+	-- luz de la barra: glow suave del mismo color del relleno y de
+	-- alcance corto (blur fijo pequeño) para que no se extienda mucho
+	Create("UIShadow", {
+		Name = "FillGlow",
+		BlurRadius = UDim.new(0, 5),
+		Color = COLOR.TEXT,
+		Transparency = 0.5,
+		Offset = UDim2.new(0, 0, 0, 0),
+		ShowBehindParent = false,
+		Parent = fill,
+	})
+
+	-- knob capsula estilo iPhone: al presionar/arrastrar se ve su
+	-- contorno (lente), crece un poco (26x16) y su centro se desvanece
+	-- (luz interior); al soltar vuelve a ser solido y al tamaño original
 	local knob = Create("Frame", {
 		Name = "Knob",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1075,6 +1144,23 @@ function Page:AddSlider(opts)
 		Parent = track,
 	})
 	Circle(knob)
+
+	-- sombra del knob (el boton de la barra) con blur fijo, mismo
+	-- estilo de sombra que la ventana
+	Create("UIShadow", {
+		Name = "KnobShadow",
+		BlurRadius = UDim.new(0, 5),
+		Color = Color3.fromRGB(0, 0, 0),
+		Transparency = 0.62,
+		Offset = UDim2.new(0, 0, 0, 0),
+		ShowBehindParent = false,
+		Parent = knob,
+	})
+
+	-- luz interior al presionar: el knob se queda solido (luz en el
+	-- contorno) y el centro se desvanece con el color de la pista
+	local setKnobGlow, setKnobGlowColor = makeInnerGlow(knob)
+	setKnobGlowColor(Color3.fromRGB(50, 50, 50))
 
 	local lens = Create("UIStroke", {
 		Name = "Lens",
@@ -1134,9 +1220,12 @@ function Page:AddSlider(opts)
 	hit.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
-			-- al presionar: centro transparente (lente) y knob mas grande
-			Tween(knob, { BackgroundTransparency = 0.5, Size = UDim2.new(0, 26, 0, 16) }, FAST, Enum.EasingStyle.Quart)
+			-- al presionar: el knob NO se transparenta entero; se queda
+			-- solido (luz alrededor del contorno) y solo el centro se
+			-- desvanece (luz interior suave) + knob mas grande
+			Tween(knob, { Size = UDim2.new(0, 26, 0, 16) }, FAST, Enum.EasingStyle.Quart)
 			Tween(lens, { Transparency = 0.1, Thickness = 2 }, FAST, Enum.EasingStyle.Quart)
+			setKnobGlow(true)
 			applyFromInput(input)
 		end
 	end)
@@ -1148,9 +1237,10 @@ function Page:AddSlider(opts)
 	self.window:_track(UserInputService.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			if dragging then dragging = false end
-			-- al soltar: knob solido y tamaño original otra vez (lente oculta)
-			Tween(knob, { BackgroundTransparency = 0, Size = UDim2.new(0, 20, 0, 12) }, FAST, Enum.EasingStyle.Quart)
+			-- al soltar: knob solido, tamaño original y luz interior apagada
+			Tween(knob, { Size = UDim2.new(0, 20, 0, 12) }, FAST, Enum.EasingStyle.Quart)
 			Tween(lens, { Transparency = 1, Thickness = 1.4 }, FAST, Enum.EasingStyle.Quart)
+			setKnobGlow(false)
 		end
 	end))
 
@@ -2368,10 +2458,7 @@ function FlowLib:CreateWindow(opts)
 	win.CloseIcon = CloseIcon
 
 	-- ------------------------------------------------------------ resize
-	-- Arco que imita la esquina redondeada de la ventana: ralla curviada
-	-- fina y paralela al borde de la esquina inferior derecha. Al
-	-- mantenerla y arrastrar se redimensiona la ventana.
-	-- Minimo configurable desde CreateWindow (opts.minSize); sin maximo
+	-- Esquina inferior derecha con diseño de arco redondeado tipo píldora
 	local Grip = Create("Frame", {
 		Name = "ResizeGrip",
 		AnchorPoint = Vector2.new(1, 1),
@@ -2383,20 +2470,22 @@ function FlowLib:CreateWindow(opts)
 		ZIndex = 14,
 		Parent = Body,
 	})
-	-- arco por segmentos (sin assets): 12 barras finas tangentes a
-	-- la curva, con solape suficiente para leerse como UNA linea
-	-- continua y suave (mismo centro que la esquina de la ventana)
+
 	local gripArc = {}
-	for i = 0, 82.5, 7.5 do
-		local tm = math.rad(i + 3.75)
+	local thickness = 4 -- Grosor de la línea del icono
+	local radius = 18   -- Radio del arco
+
+	-- Generar los segmentos del arco
+	for i = 0, 90, 6 do
+		local tm = math.rad(i)
 		local seg = Create("Frame", {
 			Name = "ArcSeg",
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			Size = UDim2.new(0, 2 * 19 * math.sin(math.rad(3.75)) + 2, 0, 2),
-			Position = UDim2.new(0, 12 + 19 * math.cos(tm), 0, 12 + 19 * math.sin(tm)),
-			Rotation = i + 93.75,
+			Size = UDim2.new(0, math.ceil(2 * radius * math.sin(math.rad(3))) + 2, 0, thickness),
+			Position = UDim2.new(0, 2 + radius * (1 - math.cos(tm)), 0, 2 + radius * (1 - math.sin(tm))),
+			Rotation = -i - 90,
 			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-			BackgroundTransparency = 0.72,
+			BackgroundTransparency = 0.5,
 			BorderSizePixel = 0,
 			ZIndex = 14,
 			Parent = Grip,
@@ -2404,6 +2493,37 @@ function FlowLib:CreateWindow(opts)
 		Round(99, seg)
 		gripArc[#gripArc + 1] = seg
 	end
+
+	-- Extremo 1 del arco (Punta superior / derecha)
+	local cap1 = Create("Frame", {
+		Name = "CapStart",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.new(0, thickness, 0, thickness),
+		Position = UDim2.new(0, 2 + radius, 0, 2),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = 0.5,
+		BorderSizePixel = 0,
+		ZIndex = 14,
+		Parent = Grip,
+	})
+	Circle(cap1)
+	gripArc[#gripArc + 1] = cap1
+
+	-- Extremo 2 del arco (Punta inferior / izquierda)
+	local cap2 = Create("Frame", {
+		Name = "CapEnd",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.new(0, thickness, 0, thickness),
+		Position = UDim2.new(0, 2, 0, 2 + radius),
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = 0.5,
+		BorderSizePixel = 0,
+		ZIndex = 14,
+		Parent = Grip,
+	})
+	Circle(cap2)
+	gripArc[#gripArc + 1] = cap2
+
 	win.Grip = Grip
 	win.GripArc = gripArc
 
@@ -2419,13 +2539,13 @@ function FlowLib:CreateWindow(opts)
 
 	Grip.MouseEnter:Connect(function()
 		if not win.destroyed then
-			setGripTransparency(0.5)
+			setGripTransparency(0.25)
 		end
 	end)
 	Grip.MouseLeave:Connect(function()
 		if not win.destroyed then
 			-- si sigue en resize (botón mantenido) se queda en hover
-			setGripTransparency(resizing and 0.5 or 0.7)
+			setGripTransparency(resizing and 0.25 or 0.5)
 		end
 	end)
 
