@@ -1,25 +1,3 @@
---[[
-	LIBB.lua · Libreria de ventana "cristal" para los scripts Flow
-
-	Carga:
-		local Lib = loadstring(game:HttpGet(
-			"https://raw.githubusercontent.com/PrinceBeebear/FlowLib/main/LIBB.lua"
-		))()
-		Lib:Singleton("MiScript")
-		local win = Lib:CreateWindow({ title = "Flow • Mi Script", width = 210, height = 150 })
-		-- tamaño: width/height o size = {w, h} (default 270x480)
-		-- minSize = {w, h}: limite de encogido al redimensionar (default 180x160)
-		local tab = win:CreateTab("General")
-		tab:AddButton { name = "Hola", callback = function() end }
-		tab:AddToggle { name = "Fly", callback = function(on) end }
-		tab:AddKeybind { name = "Tecla", default = Enum.KeyCode.X, callback = function(key) end }
-
-	Componentes: AddLabel, AddButton, AddToggle, AddSlider, AddKeybind,
-	             AddList, AddDropdown, AddSearchBox, AddSection
-	-- (AddUIBind eliminado: la ventana ya se muestra/oculta SOLO desde el script)
-]]
-
--- ============================================================== servicios
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
@@ -31,7 +9,6 @@ local LocalPlayer = Players.LocalPlayer
 local FlowLib = {}
 FlowLib.Version = "1.0.0"
 
--- ============================================================== helpers
 local function Create(className, props, children)
 	local inst = Instance.new(className)
 	for prop, value in pairs(props or {}) do
@@ -67,7 +44,6 @@ local function Tween(obj, props, duration, style, direction)
 	return t
 end
 
--- AbsolutePosition / AbsoluteSize con guardas (entornos sin layout aun)
 local function absPos(obj)
 	local p = obj and obj.AbsolutePosition
 	if p and p.X then return p end
@@ -80,14 +56,12 @@ local function absSize(obj)
 	return Vector2.new(0, 0)
 end
 
--- AbsoluteContentSize de un UIListLayout (puede no existir aun)
 local function contentHeight(layout)
 	local cs = layout and layout.AbsoluteContentSize
 	if cs and cs.Y then return cs.Y end
 	return 0
 end
 
--- ============================================================== estilo
 local COLOR = {
 	BG        = Color3.fromRGB(12, 12, 12),
 	ROW       = Color3.fromRGB(30, 30, 30),
@@ -120,26 +94,15 @@ local FAST              = 0.15
 local HEADER_H          = 38
 
 local SHADOW_TRANSPARENCY = 0.55
--- Barra de arrastre: blanca y muy transparente por defecto; al hacer
--- hover se vuelve opaca y crece un poco (tween). Compacta: no debe
--- dominar el borde superior de la ventana
 local BAR_TRANSPARENCY    = 0.6
--- Barra de arrastre: centrada (AnchorPoint 0.5) arriba de la ventana;
--- al minimizar sale por encima del borde para poder moverla con facilidad
 local DRAG_BAR_IN        = UDim2.new(0.5, 0, 0, 5)
 local DRAG_BAR_OUT       = UDim2.new(0.5, 0, 0, -9)
 local DRAG_BAR_SIZE      = UDim2.new(0, 72, 0, 5)
 local DRAG_BAR_SIZE_HOVE = UDim2.new(0, 88, 0, 7)
 
--- Icono por defecto de las filas de bind (adhesivo de teclado) e icono
--- del grip de resize. Via rbxthumb a 420x420: Roblox sirve SIEMPRE la
--- misma resolucion, asi el recorte con ImageRect es exacto y la textura
--- no se pixela al escalar al tamaño final
 local KEYBIND_ICON = "rbxthumb://type=Asset&id=125168489828313&w=420&h=420"
 local RESIZE_ICON = "rbxthumb://type=Asset&id=82041111650203&w=420&h=420"
 
--- Contorno: gris oscuro, visible en el borde superior e inferior
--- (llega hasta las esquinas y se desvanece hacia los laterales)
 local STROKE_GRADIENT = NumberSequence.new({
 	NumberSequenceKeypoint.new(0, 0.4),
 	NumberSequenceKeypoint.new(0.14, 1),
@@ -163,7 +126,6 @@ local FONT_MED  = makeFont(Enum.FontWeight.Medium)
 
 FlowLib.Fonts = { Bold = FONT_BOLD, Medium = FONT_MED }
 
--- ============================================================== teclas
 local SHORT_KEYS = {
 	LeftShift = "LS", RightShift = "RS",
 	LeftControl = "LC", RightControl = "RC",
@@ -172,7 +134,6 @@ local SHORT_KEYS = {
 	Escape = "ESC", Tab = "TAB", CapsLock = "CAPS",
 }
 
--- Nombre legible de un Enum.KeyCode (funciona tambien en entornos sin .Name)
 local function keyNameOf(key)
 	if key == nil then return "" end
 	local n = key.Name
@@ -183,7 +144,6 @@ local function keyNameOf(key)
 	return n
 end
 
--- Texto corto sobre el icono de bind: LS/RS/LC/RC/LA/RA/SP/BS/ENT/ESC/TAB
 local function shortKey(key)
 	local name = keyNameOf(key)
 	local mapped = SHORT_KEYS[name]
@@ -191,7 +151,6 @@ local function shortKey(key)
 	return (#name <= 3) and name or name:sub(1, 3)
 end
 
--- Convierte "RightControl" (string de config) o Enum.KeyCode en Enum.KeyCode
 local function toKeyCode(v)
 	if v == nil then return nil end
 	if type(v) == "string" then
@@ -202,8 +161,6 @@ local function toKeyCode(v)
 	return v
 end
 
--- ============================================================== singleton
--- Patrón IA-skill: si ya corre una instancia, se limpia antes de continuar.
 local pendingSingleton = nil
 
 function FlowLib:Singleton(key)
@@ -219,8 +176,6 @@ function FlowLib:Singleton(key)
 	return true
 end
 
--- ============================================================== utilidades
--- Lista de jugadores lista para AddList / AddDropdown
 function FlowLib:GetPlayerItems(excludeLocal)
 	local items = {}
 	local list = Players:GetPlayers()
@@ -238,8 +193,6 @@ function FlowLib:GetPlayerItems(excludeLocal)
 	return items
 end
 
--- Escucha cambios de texto de un TextBox: usa el evento TextChanged (estandar
--- de Roblox) y cae a GetPropertyChangedSignal("Text") si no existe.
 local function connectTextChanged(box, fn)
 	if box.TextChanged then
 		box.TextChanged:Connect(fn)
@@ -248,7 +201,6 @@ local function connectTextChanged(box, fn)
 	end
 end
 
--- ============================================================== items
 local function resolveIcon(item, opts)
 	local ic = item.icon
 	if ic == nil then return nil end
@@ -286,12 +238,6 @@ local function itemMatches(item, query)
 	return false
 end
 
--- ============================================================== scrollbars
--- Scrollbar vertical personalizada estilo RR (track 50 / trackHit 52 / thumb 53).
--- `contentFn` devuelve la altura REAL del contenido (UIListLayout) para decidir
--- el overflow: si no se pasa, se usa el CanvasSize (que lleva padding extra).
--- `reclaimWidth` (opcional): si el contenido NO desborda, el scroll ensancha
--- para que el contenido aproveche el ancho reservado a la scrollbar (13px)
 local function applyVerticalScroll(win, scrollFrame, parentFrame, topOffset, bottomOffset, contentFn, reclaimWidth)
 	scrollFrame.ScrollBarThickness = 0
 
@@ -317,7 +263,6 @@ local function applyVerticalScroll(win, scrollFrame, parentFrame, topOffset, bot
 	})
 	Round(99, thumb)
 
-	-- hitbox invisible sobre el track: NUNCA entra al fade (BackgroundTransparency = 1)
 	local trackHit = Create("TextButton", {
 		Name = "TrackHit",
 		BackgroundTransparency = 1,
@@ -342,8 +287,6 @@ local function applyVerticalScroll(win, scrollFrame, parentFrame, topOffset, bot
 		local overflow = view > 0 and content > view + 1
 		track.Visible = overflow
 		thumb.Visible = overflow
-		-- sin scrollbar: el espacio reservado a la derecha (SCROLL_W +
-		-- SCROLL_GAP) se reclama para el contenido
 		if reclaimWidth then
 			local wantOffset = overflow and -(SCROLL_W + SCROLL_GAP) or 0
 			if scrollFrame.Size.X.Offset ~= wantOffset then
@@ -366,8 +309,6 @@ local function applyVerticalScroll(win, scrollFrame, parentFrame, topOffset, bot
 	scrollFrame:GetPropertyChangedSignal("CanvasPosition"):Connect(updateScroll)
 	scrollFrame:GetPropertyChangedSignal("CanvasSize"):Connect(updateScroll)
 	scrollFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateScroll)
-	-- medición inmediata (evita que la scrollbar se quede visible tras
-	-- reducir la ventana) + otra pasada cuando ya hay layout del frame
 	updateScroll()
 	task.delay(0.1, updateScroll)
 
@@ -409,7 +350,6 @@ local function applyVerticalScroll(win, scrollFrame, parentFrame, topOffset, bot
 	return updateScroll
 end
 
--- Scrollbar horizontal para la barra de tabs (track abajo, estilo RR)
 local function applyTabScroll(win, tabContainer, tabBar)
 	local track = Create("Frame", {
 		Name = "Track_Tabs",
@@ -506,7 +446,6 @@ local function applyTabScroll(win, tabContainer, tabBar)
 	return updateScroll
 end
 
--- ============================================================== filas
 local function rightLabel(btn, text, color, width)
 	width = width or 44
 	return Create("TextLabel", {
@@ -523,7 +462,6 @@ local function rightLabel(btn, text, color, width)
 	})
 end
 
--- Fila base (TextButton) con etiqueta a la izquierda; rightPad reserva la derecha
 local function makeRow(parent, order, name, height, rightPad)
 	local btn = Create("TextButton", {
 		Name = name or "Row",
@@ -555,7 +493,6 @@ local function makeRow(parent, order, name, height, rightPad)
 	return btn, label
 end
 
--- Hover / press manual (AutoButtonColor = false)
 local function bindRowHover(btn, getState)
 	btn.MouseEnter:Connect(function()
 		Tween(btn, { BackgroundColor3 = getState().hover }, FAST, Enum.EasingStyle.Quart)
@@ -571,8 +508,6 @@ local function bindRowHover(btn, getState)
 	end)
 end
 
-
--- Contenedor de buscador (fondo 20,20,20 transparencia 0.78, esquina 8)
 local function makeSearchBox(parent, opts, order)
 	local container = Create("Frame", {
 		Name = "Search",
@@ -602,7 +537,6 @@ local function makeSearchBox(parent, opts, order)
 	return container, box
 end
 
--- Fila de lista/dropdown: icono 26px + nombre (+ @usuario opcional)
 local function buildListRow(parent, item, opts, order, isSelected, onSelect)
 	local h = item.subtitle and 40 or ROW_H
 	local btn = Create("TextButton", {
@@ -690,7 +624,6 @@ local function buildListRow(parent, item, opts, order, isSelected, onSelect)
 	return btn
 end
 
--- ============================================================== pagina
 local Page = {}
 Page.__index = Page
 
@@ -774,9 +707,6 @@ function Page:AddButton(opts)
 	}
 end
 
--- Espera de tecla compartida (AddKeybind y el bind inline de AddToggle):
--- timeout 30s, Escape cancela. onKey se llama SIEMPRE al terminar, con la
--- tecla elegida o nil (cancelado / destruida la ventana)
 local function waitForKey(win, onKey)
 	local finished = false
 	local conn
@@ -805,12 +735,8 @@ function Page:AddToggle(opts)
 	local skipProc = opts.skipGameProcessed
 	if skipProc == nil then skipProc = true end
 	local win = self.window
-	-- el bind inline (si hay tecla) ocupa su hueco a la izquierda del switch
 	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, ROW_H, key and 128 or 68)
 
-	-- switch estilo iPhone (iOS 26): pista horizontal tipo pildora y
-	-- knob capsula (no circular). El knob queda solido en blanco; la
-	-- lente (contorno) solo aparece mientras se mantiene presionada
 	local switch = Create("Frame", {
 		Name = "Switch",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -822,8 +748,6 @@ function Page:AddToggle(opts)
 	})
 	Round(13, switch)
 
-	-- sombra del switch: UIShadow con blur FIJO en pixeles (igual que
-	-- la ventana, a escala pequeña) para dar profundidad al boton
 	Create("UIShadow", {
 		Name = "SwitchShadow",
 		BlurRadius = UDim.new(0, 8),
@@ -840,6 +764,7 @@ function Page:AddToggle(opts)
 		Size = UDim2.new(0, 32, 0, 20),
 		Position = UDim2.new(0, 19, 0.5, 0),
 		BackgroundColor3 = COLOR.TEXT,
+		BackgroundTransparency = 0.15,
 		BorderSizePixel = 0,
 		ZIndex = 2,
 		Parent = switch,
@@ -855,8 +780,6 @@ function Page:AddToggle(opts)
 		Parent = knob,
 	})
 
-	-- bind inline: pildora redondeada a la izquierda del switch (4px de
-	-- hueco antes de la pista). Icono y tecla bien centrados dentro
 	local keyBtn, keyLabel, bindIcon, binding = nil, nil, nil, false
 	if key then
 		keyBtn = Create("TextButton", {
@@ -880,9 +803,6 @@ function Page:AddToggle(opts)
 		bindIcon = Create("ImageLabel", {
 			Name = "BindIcon",
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			-- recorte exacto del icono en el thumbnail 420x420 (el teclado
-			-- ocupa (15,68)-(405,352)): llena el label sin aire inutil y
-			-- sin pixelado al escalar
 			Size = UDim2.new(0, 30, 0, 22),
 			Position = UDim2.new(0.5, 0, 0.5, 0),
 			BackgroundTransparency = 1,
@@ -908,7 +828,6 @@ function Page:AddToggle(opts)
 		})
 	end
 
-	-- estados del bind: adhesivo (sin tecla) / "..." (esperando) / tecla
 	local function renderBind()
 		if not keyBtn then return end
 		if binding then
@@ -950,7 +869,6 @@ function Page:AddToggle(opts)
 		if fire and opts.callback then opts.callback(value) end
 	end
 
-	-- estado inicial (sin tocar: knob solido; encendido: pista clara)
 	switch.BackgroundColor3 = trackColor()
 	if value then
 		knob.Position = UDim2.new(0, 37, 0.5, 0)
@@ -960,12 +878,9 @@ function Page:AddToggle(opts)
 		apply(not value, true)
 	end)
 
-	-- lente SOLO mientras se presiona la fila: el knob ademas crece un
-	-- poco (36x24); al soltar (dentro o fuera) vuelve a quedar solido en
-	-- blanco y a su tamaño original
 	local function setLens(on)
 		Tween(knob, {
-			BackgroundTransparency = on and 0.5 or 0,
+			BackgroundTransparency = on and 0.5 or 0.15,
 			Size = on and UDim2.new(0, 36, 0, 24) or UDim2.new(0, 32, 0, 20),
 		}, FAST, Enum.EasingStyle.Quart)
 		knobCorner.CornerRadius = UDim.new(0, on and 12 or 10)
@@ -980,7 +895,6 @@ function Page:AddToggle(opts)
 		end
 	end))
 
-	-- tecla que enciende/apaga el toggle (sin depender de la UI visible)
 	if key then
 		win:_track(UserInputService.InputBegan:Connect(function(input, processed)
 			if binding then return end
@@ -991,10 +905,7 @@ function Page:AddToggle(opts)
 		end))
 	end
 
-	-- rebind del bind inline: espera de tecla con timeout (Escape cancela)
 	if keyBtn then
-		-- con tecla ya bindeada: SOLO la elimina (no pide otra tecla)
-		-- y el adhesivo vuelve a ocupar el boton
 		keyBtn.MouseButton1Click:Connect(function()
 			if binding then return end
 			if key ~= nil then
@@ -1085,8 +996,6 @@ function Page:AddSlider(opts)
 		Parent = holder,
 	})
 
-	-- track: pista visible bajo el relleno (marca el porcentaje recorrido,
-	-- igual que la scrollbar vertical) + fill + knob capsula
 	local track = Create("Frame", {
 		Name = "Track",
 		Size = UDim2.new(1, -24, 0, 6),
@@ -1106,8 +1015,6 @@ function Page:AddSlider(opts)
 	})
 	Circle(fill)
 
-	-- luz de la barra: glow suave del mismo color del relleno y de
-	-- alcance corto (blur fijo pequeño) para que no se extienda mucho
 	Create("UIShadow", {
 		Name = "FillGlow",
 		BlurRadius = UDim.new(0, 5),
@@ -1118,9 +1025,6 @@ function Page:AddSlider(opts)
 		Parent = fill,
 	})
 
-	-- knob capsula estilo iPhone: solo mientras se presiona/arrastra su
-	-- centro queda transparente y se ve su contorno (lente) y crece un
-	-- poco (26x16); al soltar vuelve a ser solido y al tamaño original
 	local knob = Create("Frame", {
 		Name = "Knob",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1133,8 +1037,6 @@ function Page:AddSlider(opts)
 	})
 	Circle(knob)
 
-	-- sombra del knob (el boton de la barra) con blur fijo, mismo
-	-- estilo de sombra que la ventana
 	Create("UIShadow", {
 		Name = "KnobShadow",
 		BlurRadius = UDim.new(0, 5),
@@ -1154,11 +1056,8 @@ function Page:AddSlider(opts)
 		Parent = knob,
 	})
 
-	-- hitbox invisible mas alta que la barra: NUNCA entra al fade
 	local hit = Create("TextButton", {
 		Name = "KnobHit",
-		-- hitbox casi al borde del holder: cubre el knob incluso al llegar
-		-- al maximo (antes no se podia mantener el click en su lado derecho)
 		Size = UDim2.new(1, -4, 0, 22),
 		Position = UDim2.new(0, 2, 1, -21),
 		BackgroundTransparency = 1,
@@ -1171,13 +1070,16 @@ function Page:AddSlider(opts)
 
 	local value = math.clamp(tonumber(opts.default) or minV, minV, maxV)
 	local dragging = false
+	local knobTween, fillTween
 
 	local function render()
 		local range = (maxV - minV)
 		local pct = range ~= 0 and ((value - minV) / range) or 0
 		pct = math.clamp(pct, 0, 1)
-		fill.Size = UDim2.new(pct, 0, 1, 0)
-		knob.Position = UDim2.new(pct, 0, 0.5, 0)
+		if knobTween then pcall(function() knobTween:Cancel() end) end
+		if fillTween then pcall(function() fillTween:Cancel() end) end
+		knobTween = Tween(knob, { Position = UDim2.new(pct, 0, 0.5, 0) }, 0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+		fillTween = Tween(fill, { Size = UDim2.new(pct, 0, 1, 0) }, 0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 		valueLabel.Text = fmt(value)
 	end
 
@@ -1203,7 +1105,6 @@ function Page:AddSlider(opts)
 	hit.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
-			-- al presionar: centro transparente (lente) y knob mas grande
 			Tween(knob, { BackgroundTransparency = 0.5, Size = UDim2.new(0, 26, 0, 16) }, FAST, Enum.EasingStyle.Quart)
 			Tween(lens, { Transparency = 0.1, Thickness = 2 }, FAST, Enum.EasingStyle.Quart)
 			applyFromInput(input)
@@ -1217,7 +1118,6 @@ function Page:AddSlider(opts)
 	self.window:_track(UserInputService.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			if dragging then dragging = false end
-			-- al soltar: knob solido y tamaño original otra vez (lente oculta)
 			Tween(knob, { BackgroundTransparency = 0, Size = UDim2.new(0, 20, 0, 12) }, FAST, Enum.EasingStyle.Quart)
 			Tween(lens, { Transparency = 1, Thickness = 1.4 }, FAST, Enum.EasingStyle.Quart)
 		end
@@ -1242,11 +1142,9 @@ function Page:AddKeybind(opts)
 
 	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, ROW_H, 82)
 
-	-- adhesivo del bind: visible solo cuando NO hay tecla (sin NONE)
 	local bindIcon = Create("ImageLabel", {
 		Name = "BindIcon",
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		-- mismo recorte exacto que el adhesivo inline (sin pixelado)
 		Size = UDim2.new(0, 30, 0, 22),
 		Position = UDim2.new(1, -53, 0.5, 0),
 		BackgroundTransparency = 1,
@@ -1261,7 +1159,6 @@ function Page:AddKeybind(opts)
 	local keyLabel = rightLabel(btn, "", COLOR.TEXT_DIM, 44)
 	keyLabel.TextSize = 9
 
-	-- estados: adhesivo (sin tecla) / "..." (esperando) / tecla
 	local function refresh()
 		keyLabel.TextColor3 = COLOR.TEXT_DIM
 		if binding then
@@ -1277,7 +1174,6 @@ function Page:AddKeybind(opts)
 	end
 	refresh()
 
-	-- accion: se dispara al presionar la tecla
 	self.window:_track(UserInputService.InputBegan:Connect(function(input, processed)
 		if binding or win.destroyed then return end
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
@@ -1290,11 +1186,8 @@ function Page:AddKeybind(opts)
 		return { base = COLOR.ROW, hover = COLOR.ROW_HOVER, press = COLOR.ROW_PRESS }
 	end)
 
-	-- espera de tecla con timeout de 30s; Escape cancela
 	btn.MouseButton1Click:Connect(function()
 		if binding then return end
-		-- con una tecla ya bindeada: SOLO la elimina (no pide otra tecla).
-		-- El siguiente click (ya sin tecla) abre de nuevo la espera de bind
 		if key ~= nil then
 			key = nil
 			if opts.onBind then pcall(opts.onBind, nil) end
@@ -1358,7 +1251,6 @@ function Page:AddSearchBox(opts)
 	}
 end
 
--- Lista con buscador (filas 36-40px, icono 26px, @usuario opcional)
 function Page:AddList(opts)
 	opts = opts or {}
 	local win = self.window
@@ -1399,8 +1291,6 @@ function Page:AddList(opts)
 
 	local _, box = makeSearchBox(root, opts, 2)
 
-	-- host de filas: con maxHeight tiene scroll propio, si no crece con la página
-	-- (rowsLayout se crea después: se forward-declara para el contentFn del scroll)
 	local rowsHost, rowsParent, isScroll, updateRowsScroll, rowsLayout
 	if maxHeight > 0 then
 		rowsHost = Create("Frame", {
@@ -1490,7 +1380,6 @@ function Page:AddList(opts)
 			end
 		end
 
-		-- carga por lotes para listas grandes (checklist de rendimiento)
 		local idx = 1
 		local BATCH = 25
 		local function buildChunk()
@@ -1542,7 +1431,6 @@ function Page:AddList(opts)
 	}
 end
 
--- Dropdown: boton que despliega panel con buscador + lista (scroll propio)
 function Page:AddDropdown(opts)
 	opts = opts or {}
 	local win = self.window
@@ -1741,13 +1629,11 @@ function Page:AddDropdown(opts)
 	}
 end
 
--- ============================================================== pagina (creacion)
 local function makePage(win, name, parent)
 	local self = setmetatable({ window = win, name = name, order = 0 }, Page)
 
 	local group = Create("Frame", {
 		Name = "Page_" .. name,
-		-- margen izquierdo 15 = igual que el titulo (derecho se queda en 10)
 		Size = UDim2.new(1, -25, 1, -20),
 		Position = UDim2.new(0, 15, 0, 10),
 		BackgroundTransparency = 1,
@@ -1788,7 +1674,6 @@ local function makePage(win, name, parent)
 	return self
 end
 
--- ============================================================== ventana
 local Window = {}
 Window.__index = Window
 
@@ -1804,9 +1689,6 @@ function Window:_disconnectAll()
 	self._connections = {}
 end
 
--- Fade de TODOS los elementos: cada elemento visual se registra en
--- _fadeList {obj, prop, on, off} y SetVisible los tween-a juntos
--- (fade-in al aparecer, fade-out al ocultar o al cerrar el script).
 function Window:_registerFade(obj, prop, on, off)
 	if not obj then return end
 	table.insert(self._fadeList, { obj = obj, prop = prop, on = on, off = off })
@@ -1855,7 +1737,6 @@ function Window:ToggleMinimize()
 		pcall(function() self._dragTween:Cancel() end)
 		self._dragTween = nil
 	end
-	-- aplica lo pendiente para no pisar el tween de tamaño con un target viejo
 	self:_flushPending()
 
 	self.minimized = not self.minimized
@@ -1885,7 +1766,6 @@ function Window:ToggleMinimize()
 	end
 end
 
--- Cerrar: primero la logica del script, luego desconectar, luego fade, luego destroy
 function Window:Destroy()
 	if self.destroyed then return end
 
@@ -1912,7 +1792,6 @@ function Window:Close()
 	self:Destroy()
 end
 
--- ============================================================== arrastre
 function Window:_clampPosition(x, y)
 	local screen = absSize(self.ScreenGui)
 	local frame = absSize(self.MainFrame)
@@ -1933,7 +1812,6 @@ function Window:_dragBegan(input)
 	end
 	if self._dragging then return end
 
-	-- aplica cualquier posicion pendiente antes de leer la actual
 	self:_flushPending()
 
 	self._dragging = true
@@ -1966,16 +1844,12 @@ function Window:_dragMove(input)
 	self._lastMousePos = currentMousePos
 
 	local delta = Vector2.new(input.Position.X - self._dragStart.X, input.Position.Y - self._dragStart.Y)
-	-- NO se escribe Position aqui: se acumula y se aplica UNA vez por frame
-	-- (RenderStepped). Escribir en cada evento InputChanged re-renderiza el
-	-- CanvasGroup completo y provoca bajones de FPS al arrastrar
 	self._dragTarget = self:_clampPosition(
 		self._dragStartPos.X.Offset + delta.X,
 		self._dragStartPos.Y.Offset + delta.Y
 	)
 end
 
--- Aplica en un solo paso todo lo pendiente del frame (arrastre y resize)
 function Window:_flushPending()
 	if self._dragTarget then
 		self.MainFrame.Position = self._dragTarget
@@ -1991,7 +1865,6 @@ function Window:_flushPending()
 	end
 end
 
--- Al soltar: deslizamiento x1.8 con tween 0.45 Quart (inercia)
 function Window:_dragEnd()
 	self:_flushPending()
 	local screen = absSize(self.ScreenGui)
@@ -2005,7 +1878,6 @@ function Window:_dragEnd()
 	self._dragTween = Tween(self.MainFrame, { Position = safe }, 0.45, Enum.EasingStyle.Quart)
 end
 
--- ============================================================== tabs
 function Window:_layoutPages()
 	local hasTabs = self._tabsShown
 	for i = 1, #self._pages do
@@ -2069,7 +1941,6 @@ function Window:CreateTab(name)
 	local page
 
 	if not self._tabsShown then
-		-- primera pestaña: la pagina por defecto se adopta como su contenido
 		self._tabsShown = true
 		self.TabBar.Visible = true
 		page = self._defaultPage
@@ -2123,7 +1994,6 @@ function Window:CreateTab(name)
 		self:_selectTab(tab)
 	end)
 
-	-- la pagina nueva (y cualquier otra) respeta el layout con tabs
 	self:_layoutPages()
 
 	if not self._selectedTab then
@@ -2132,8 +2002,6 @@ function Window:CreateTab(name)
 	return tab
 end
 
--- ============================================================== elementos
--- (delegados a la pagina por defecto: sirven con o sin tabs)
 function Window:AddSection(o) return self._defaultPage:AddSection(o) end
 function Window:AddLabel(o) return self._defaultPage:AddLabel(o) end
 function Window:AddButton(o) return self._defaultPage:AddButton(o) end
@@ -2144,7 +2012,6 @@ function Window:AddSearchBox(o) return self._defaultPage:AddSearchBox(o) end
 function Window:AddList(o) return self._defaultPage:AddList(o) end
 function Window:AddDropdown(o) return self._defaultPage:AddDropdown(o) end
 
--- ============================================================== CreateWindow
 local function GetSafeParent()
 	local ok, parent = pcall(function()
 		if gethui then return gethui() end
@@ -2156,8 +2023,6 @@ local function GetSafeParent()
 	return parent
 end
 
--- Tamaño configurable desde el script: width/height o size = {w, h}
--- (default 270x480 en escritorio, clamp en móvil)
 local function calcSizes(opts)
 	local ow, oh
 	if type(opts.size) == "table" then
@@ -2184,7 +2049,6 @@ function FlowLib:CreateWindow(opts)
 	local guiName = tostring(opts.name or ("FlowLib_" .. title:gsub("%W", "_")))
 	local parent = GetSafeParent()
 
-	-- destruye la ventana anterior con el mismo nombre (re-ejecución limpia)
 	for _, child in ipairs(parent:GetChildren()) do
 		if child.Name == guiName then
 			child:Destroy()
@@ -2216,12 +2080,9 @@ function FlowLib:CreateWindow(opts)
 		_dragStartPos = UDim2.new(0, 0, 0, 0),
 		_dragTarget = nil,
 		_resizeTarget = nil,
-		resizeMin = nil, -- se calcula abajo desde opts.minSize
+		resizeMin = nil,
 	}, Window)
 
-	-- minimo de resize configurable desde el script (opts.minSize = {w, h}).
-	-- Default sensato: la ventana ya no se puede encoger hasta romperse
-	-- (el minimo nunca supera el tamaño inicial). Sin maximo al agrandar.
 	local minRW, minRH = 180, 160
 	if type(opts.minSize) == "table" then
 		minRW = math.max(24, tonumber(opts.minSize[1]) or 180)
@@ -2231,7 +2092,6 @@ function FlowLib:CreateWindow(opts)
 	minRH = math.min(minRH, fullSize.Y.Offset)
 	win.resizeMin = { w = minRW, h = minRH }
 
-	-- ------------------------------------------------------------ ScreenGui
 	local ScreenGui = Create("ScreenGui", {
 		Name = guiName,
 		ResetOnSpawn = false,
@@ -2241,7 +2101,6 @@ function FlowLib:CreateWindow(opts)
 	})
 	win.ScreenGui = ScreenGui
 
-	-- MainFrame: solo maneja posición/tamaño/arrastre
 	local MainFrame = Create("Frame", {
 		Name = "MainFrame",
 		AnchorPoint = Vector2.new(0.5, 0),
@@ -2256,15 +2115,8 @@ function FlowLib:CreateWindow(opts)
 	Round(CORNER_RADIUS, MainFrame)
 	win.MainFrame = MainFrame
 
-	-- Sombra nativa (UIShadow): suave, ajustada al tamano y centrada
-	-- (Offset 0). ShowBehindParent=false para que no oscurezca el interior
-	-- a traves del fondo transparente del MainFrame. Arranca invisible:
-	-- el fade la trae junto al resto de elementos.
 	local WinShadow = Create("UIShadow", {
 		Name = "WinShadow",
-		-- blur FIJO en pixeles: antes era 0.22 en escala y la sombra se
-		-- estiraba cada vez mas al agrandar la ventana (maximizar/resize);
-		-- fija en px se ajusta igual a cualquier tamaño
 		BlurRadius = UDim.new(0, 16),
 		Color = Color3.fromRGB(0, 0, 0),
 		Transparency = 1,
@@ -2274,9 +2126,6 @@ function FlowLib:CreateWindow(opts)
 	})
 	win.WinShadow = WinShadow
 
-	-- Barra de arrastre: centrada arriba, blanca y muy transparente; al
-	-- hacer hover se vuelve opaca y crece un poco (tween). Al minimizar
-	-- sale por encima del borde para agarrarla mejor
 	local DragBar = Create("Frame", {
 		Name = "DragBar",
 		AnchorPoint = Vector2.new(0.5, 0),
@@ -2292,8 +2141,6 @@ function FlowLib:CreateWindow(opts)
 	Circle(DragBar)
 	win.DragBar = DragBar
 
-	-- hover: la barra sube un poquito (nunca hacia abajo), tanto
-	-- dentro de la ventana como afuera (ventana minimizada)
 	local function dragBarHover(on)
 		if win.destroyed then return end
 		local tr = 1
@@ -2308,7 +2155,6 @@ function FlowLib:CreateWindow(opts)
 	DragBar.MouseEnter:Connect(function() dragBarHover(true) end)
 	DragBar.MouseLeave:Connect(function() dragBarHover(false) end)
 
-	-- Body: CanvasGroup de TODO lo visual; su GroupTransparency es el fade global
 	local Body = Create("CanvasGroup", {
 		Name = "Body",
 		Size = UDim2.new(1, 0, 1, 0),
@@ -2321,7 +2167,6 @@ function FlowLib:CreateWindow(opts)
 	Round(CORNER_RADIUS, Body)
 	win.Body = Body
 
-	-- registro de TODOS los elementos con fade (aparecer / cerrar)
 	win:_registerFade(Body, "GroupTransparency", 0, 1)
 	win:_registerFade(WinShadow, "Transparency", SHADOW_TRANSPARENCY, 1)
 	win:_registerFade(DragBar, "BackgroundTransparency", BAR_TRANSPARENCY, 1)
@@ -2336,8 +2181,6 @@ function FlowLib:CreateWindow(opts)
 	})
 	Create("UIGradient", { Rotation = 90, Transparency = STROKE_GRADIENT, Parent = WindowStroke })
 	win.WindowStroke = WindowStroke
-	-- el contorno tambien entra en el fade (0.1 visible <-> 1 oculto):
-	-- un UIStroke dentro del CanvasGroup NO se atenúa con GroupTransparency
 	win:_registerFade(WindowStroke, "Transparency", 0.1, 1)
 
 	local GlassBackdrop = Create("ImageLabel", {
@@ -2353,8 +2196,6 @@ function FlowLib:CreateWindow(opts)
 	Round(CORNER_RADIUS, GlassBackdrop)
 	win.GlassBackdrop = GlassBackdrop
 
-	-- Luz suave por dentro, disparada hacia arriba desde el fondo
-	-- (gris claro y muy sutil, solo ambienta la parte de abajo)
 	local BottomGlow = Create("Frame", {
 		Name = "BottomGlow",
 		Size = UDim2.new(1, 0, 0.35, 0),
@@ -2392,7 +2233,6 @@ function FlowLib:CreateWindow(opts)
 	})
 	win.Title = Title
 
-	-- Area de arrastre: ancho completo menos 90px (nunca tapa los botones)
 	local DragArea = Create("TextButton", {
 		Name = "DragArea",
 		BackgroundTransparency = 1,
@@ -2405,7 +2245,6 @@ function FlowLib:CreateWindow(opts)
 	})
 	win.DragArea = DragArea
 
-	-- Botones minimalistas: circulos con "-" y "X"; sin animaciones
 	local function createWindowButton(name, iconText, posX)
 		local btn = Create("TextButton", {
 			Name = name,
@@ -2442,11 +2281,6 @@ function FlowLib:CreateWindow(opts)
 	win.CloseBtn = CloseBtn
 	win.CloseIcon = CloseIcon
 
-	-- ------------------------------------------------------------ resize
-	-- Esquina inferior derecha: icono de resize (imagen). Al mantenerlo
-	-- y arrastrar se redimensiona la ventana (minimo en opts.minSize).
-	-- rbxthumb 420x420 + recorte exacto del arco (50,50)-(370,370): sin
-	-- aire transparente alrededor y sin pixelado al escalar
 	local Grip = Create("ImageLabel", {
 		Name = "ResizeGrip",
 		AnchorPoint = Vector2.new(1, 1),
@@ -2465,7 +2299,6 @@ function FlowLib:CreateWindow(opts)
 	})
 	win.Grip = Grip
 
-	-- se declara antes de los handlers: los closures deben verla
 	local resizing, resizeStart = false, nil
 	local startW, startH, startOffsetX = 0, 0, 0
 
@@ -2480,7 +2313,6 @@ function FlowLib:CreateWindow(opts)
 	end)
 	Grip.MouseLeave:Connect(function()
 		if not win.destroyed then
-			-- si sigue en resize (botón mantenido) se queda en hover
 			setGripTransparency(resizing and 0.15 or 0.45)
 		end
 	end)
@@ -2492,7 +2324,6 @@ function FlowLib:CreateWindow(opts)
 		if win.destroyed or win.minimized then return end
 		resizing = true
 		resizeStart = Vector2.new(input.Position.X, input.Position.Y)
-		-- Size con Scale 0 = pixeles reales del marco
 		startW = MainFrame.Size.X.Offset
 		startH = MainFrame.Size.Y.Offset
 		startOffsetX = MainFrame.Position.X.Offset
@@ -2503,14 +2334,9 @@ function FlowLib:CreateWindow(opts)
 		if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
 			return
 		end
-		-- minimo configurable (opts.minSize / win.resizeMin); sin maximo
 		local rmin = win.resizeMin or { w = 24, h = 24 }
 		local w = math.max(rmin.w, math.floor(startW + (input.Position.X - resizeStart.X)))
 		local h = math.max(rmin.h, math.floor(startH + (input.Position.Y - resizeStart.Y)))
-		-- ancla (0.5, 0): compensar solo X para que el borde izquierdo
-		-- quede fijo; Y no se toca (la ventana crece hacia abajo)
-		-- NO se escribe Size/Position aqui: se aplica UNA vez por frame
-		-- (RenderStepped) para no re-renderizar el CanvasGroup en cada evento
 		local pos = MainFrame.Position
 		win._resizeTarget = {
 			position = UDim2.new(pos.X.Scale, startOffsetX + math.floor((w - startW) / 2), pos.Y.Scale, pos.Y.Offset),
@@ -2521,9 +2347,7 @@ function FlowLib:CreateWindow(opts)
 	win:_track(UserInputService.InputEnded:Connect(function(input)
 		if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and resizing then
 			resizing = false
-			-- aplica el ultimo tamaño pendiente antes de re-medir
 			win:_flushPending()
-			-- el contenido se re-mide contra el tamaño nuevo
 			for _, page in ipairs(win._pages) do
 				if page.UpdateScroll then page.UpdateScroll() end
 			end
@@ -2541,7 +2365,6 @@ function FlowLib:CreateWindow(opts)
 	})
 	win.ContentArea = ContentArea
 
-	-- ------------------------------------------------------------ tabs
 	local TabBar = Create("Frame", {
 		Name = "TabBar",
 		Size = UDim2.new(1, 0, 0, 35),
@@ -2597,14 +2420,12 @@ function FlowLib:CreateWindow(opts)
 		if win._selectedTab then win:_moveIndicator(win._selectedTab.Button, false) end
 	end)
 
-	-- ------------------------------------------------------------ paginas
 	local defaultPage = makePage(win, "Main", ContentArea)
 	defaultPage.Group.Visible = true
 	win._defaultPage = defaultPage
 	win.defaultPage = defaultPage
 	table.insert(win._pages, defaultPage)
 
-	-- ------------------------------------------------------------ arrastre
 	Title.InputBegan:Connect(function(i) win:_dragBegan(i) end)
 	Title.InputChanged:Connect(function(i) win:_dragChanged(i) end)
 	DragArea.InputBegan:Connect(function(i) win:_dragBegan(i) end)
@@ -2623,15 +2444,11 @@ function FlowLib:CreateWindow(opts)
 			win:_dragEnd()
 		end
 	end))
-	-- la posicion/tamaño acumulados se aplican UNA vez por frame: escribir
-	-- Position/Size en cada evento InputChanged re-renderiza el CanvasGroup
-	-- completo y da bajones de FPS al arrastrar o redimensionar
 	win:_track(RunService.RenderStepped:Connect(function()
 		if win.destroyed then return end
 		win:_flushPending()
 	end))
 
-	-- ------------------------------------------------------------ botones
 	MinimizeBtn.MouseButton1Click:Connect(function()
 		win:ToggleMinimize()
 	end)
@@ -2639,7 +2456,6 @@ function FlowLib:CreateWindow(opts)
 		win:Destroy()
 	end)
 
-	-- ------------------------------------------------------------ singleton
 	if pendingSingleton then
 		win._singletonKey = pendingSingleton
 		_G[pendingSingleton .. "_Cleanup"] = function()
@@ -2648,7 +2464,6 @@ function FlowLib:CreateWindow(opts)
 		pendingSingleton = nil
 	end
 
-	-- arranque: todo invisible y luego fade in (0.3s)
 	task.delay(0.05, function()
 		if not win.destroyed then win:SetVisible(true) end
 	end)
