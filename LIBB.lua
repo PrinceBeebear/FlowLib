@@ -93,7 +93,7 @@ local COLOR = {
 	TEXT      = Color3.fromRGB(255, 255, 255),
 	TEXT_DIM  = Color3.fromRGB(175, 175, 175),
 	STROKE    = Color3.fromRGB(210, 210, 225),
-	BORDER    = Color3.fromRGB(72, 72, 72),
+	BORDER    = Color3.fromRGB(205, 205, 205),
 	GLOW      = Color3.fromRGB(205, 205, 205),
 	ACCENT    = Color3.fromRGB(100, 100, 100),
 	DANGER    = Color3.fromRGB(255, 60, 60),
@@ -118,20 +118,21 @@ local HEADER_H          = 38
 
 local SHADOW_TRANSPARENCY = 0.55
 -- Barra de arrastre: blanca y muy transparente por defecto; al hacer
--- hover se vuelve opaca y crece un poco (tween)
+-- hover se vuelve opaca y crece un poco (tween). Compacta: no debe
+-- dominar el borde superior de la ventana
 local BAR_TRANSPARENCY    = 0.6
 -- Barra de arrastre: centrada (AnchorPoint 0.5) arriba de la ventana;
 -- al minimizar sale por encima del borde para poder moverla con facilidad
 local DRAG_BAR_IN        = UDim2.new(0.5, 0, 0, 5)
 local DRAG_BAR_OUT       = UDim2.new(0.5, 0, 0, -9)
-local DRAG_BAR_SIZE      = UDim2.new(0, 104, 0, 5)
-local DRAG_BAR_SIZE_HOVE = UDim2.new(0, 124, 0, 7)
+local DRAG_BAR_SIZE      = UDim2.new(0, 72, 0, 5)
+local DRAG_BAR_SIZE_HOVE = UDim2.new(0, 88, 0, 7)
 
 -- Icono por defecto de las filas de bind (decal que indica "es un bind")
 local KEYBIND_ICON = "rbxassetid://133118219945599"
 
--- Contorno: gris oscuro suave visible en el borde superior e inferior
--- (llega hasta las esquinas y se desvanece hacia los laterales)
+-- Contorno: blanco suave casi gris, visible en el borde superior e
+-- inferior (llega hasta las esquinas y se desvanece hacia los laterales)
 local STROKE_GRADIENT = NumberSequence.new({
 	NumberSequenceKeypoint.new(0, 0.4),
 	NumberSequenceKeypoint.new(0.14, 1),
@@ -279,8 +280,10 @@ local function itemMatches(item, query)
 end
 
 -- ============================================================== scrollbars
--- Scrollbar vertical personalizada estilo RR (track 50 / trackHit 52 / thumb 53)
-local function applyVerticalScroll(win, scrollFrame, parentFrame, topOffset, bottomOffset)
+-- Scrollbar vertical personalizada estilo RR (track 50 / trackHit 52 / thumb 53).
+-- `contentFn` devuelve la altura REAL del contenido (UIListLayout) para decidir
+-- el overflow: si no se pasa, se usa el CanvasSize (que lleva padding extra)
+local function applyVerticalScroll(win, scrollFrame, parentFrame, topOffset, bottomOffset, contentFn)
 	scrollFrame.ScrollBarThickness = 0
 
 	local track = Create("Frame", {
@@ -317,13 +320,16 @@ local function applyVerticalScroll(win, scrollFrame, parentFrame, topOffset, bot
 	})
 
 	local function updateScroll()
+		if win.destroyed then return end
 		local tOffset = type(topOffset) == "function" and topOffset() or topOffset
 		local bOffset = type(bottomOffset) == "function" and bottomOffset() or (tonumber(bottomOffset) or 10)
 		track.Position = UDim2.new(1, -(SIDE_MARGIN + SCROLL_W), 0, tOffset)
 		track.Size = UDim2.new(0, SCROLL_W, 1, -(tOffset + bOffset))
 
 		local view = absSize(scrollFrame).Y
-		local content = (scrollFrame.CanvasSize and scrollFrame.CanvasSize.Y.Offset) or 0
+		local content = contentFn and (contentFn() or 0)
+			or (scrollFrame.CanvasSize and scrollFrame.CanvasSize.Y.Offset)
+			or 0
 		local overflow = view > 0 and content > view + 1
 		track.Visible = overflow
 		thumb.Visible = overflow
@@ -343,6 +349,10 @@ local function applyVerticalScroll(win, scrollFrame, parentFrame, topOffset, bot
 	scrollFrame:GetPropertyChangedSignal("CanvasPosition"):Connect(updateScroll)
 	scrollFrame:GetPropertyChangedSignal("CanvasSize"):Connect(updateScroll)
 	scrollFrame:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateScroll)
+	-- medición inmediata (evita que la scrollbar se quede visible tras
+	-- reducir la ventana) + otra pasada cuando ya hay layout del frame
+	updateScroll()
+	task.delay(0.1, updateScroll)
 
 	local scrollDragging, scrollDragOffsetY = false, 0
 	local function scrollToTrackLocalY(localY)
@@ -746,18 +756,43 @@ function Page:AddButton(opts)
 	}
 end
 
+-- Espera de tecla compartida (AddKeybind y el bind inline de AddToggle):
+-- timeout 30s, Escape cancela. onKey se llama SIEMPRE al terminar, con la
+-- tecla elegida o nil (cancelado / destruida la ventana)
+local function waitForKey(win, onKey)
+	local finished = false
+	local conn
+	local function finish(newKey)
+		if finished then return end
+		finished = true
+		if conn then pcall(function() conn:Disconnect() end) end
+		onKey(newKey)
+	end
+	conn = UserInputService.InputBegan:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+		if input.KeyCode == Enum.KeyCode.Escape then
+			finish(nil)
+			return
+		end
+		finish(input.KeyCode)
+	end)
+	win:_track(conn)
+	task.delay(30, function() finish(nil) end)
+end
+
 function Page:AddToggle(opts)
 	opts = opts or {}
 	local value = (opts.default == true)
 	local key = toKeyCode(opts.keybind)
 	local skipProc = opts.skipGameProcessed
 	if skipProc == nil then skipProc = true end
-	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, ROW_H, key and 108 or 68)
+	local win = self.window
+	-- el bind inline (si hay tecla) ocupa su hueco a la izquierda del switch
+	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, ROW_H, key and 128 or 68)
 
 	-- switch estilo iPhone (iOS 26): pista horizontal tipo pildora y
-	-- knob capsula (no circular). Al tocarlo el centro del knob queda
-	-- transparente y solo se ve su contorno (lente), dejando ver la
-	-- barrita de la pista por dentro
+	-- knob capsula (no circular). El knob queda solido en blanco; la
+	-- lente (contorno) solo aparece mientras se mantiene presionada
 	local switch = Create("Frame", {
 		Name = "Switch",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -790,19 +825,40 @@ function Page:AddToggle(opts)
 		Parent = knob,
 	})
 
-	local keyLabel
+	-- bind inline: icono + tecla en un TextButton propio a la izquierda
+	-- del switch (4px de hueco antes de la pista)
+	local keyBtn, keyLabel, binding = nil, nil, false
 	if key then
+		keyBtn = Create("TextButton", {
+			Name = "KeyBtn",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.new(0, 52, 1, -12),
+			Position = UDim2.new(1, -98, 0.5, 0),
+			BackgroundTransparency = 1,
+			Text = "",
+			AutoButtonColor = false,
+			Parent = btn,
+		})
+		Create("ImageLabel", {
+			Name = "BindIcon",
+			Size = UDim2.new(0, 12, 0, 12),
+			Position = UDim2.new(0, 6, 0.5, -6),
+			BackgroundTransparency = 1,
+			Image = KEYBIND_ICON,
+			ImageColor3 = COLOR.TEXT_DIM,
+			Parent = keyBtn,
+		})
 		keyLabel = Create("TextLabel", {
 			Name = "Key",
-			Size = UDim2.new(0, 36, 1, 0),
-			Position = UDim2.new(1, -108, 0, 0),
+			Size = UDim2.new(0, 26, 1, 0),
+			Position = UDim2.new(0, 20, 0, 0),
 			BackgroundTransparency = 1,
 			Text = shortKey(key),
 			TextColor3 = COLOR.TEXT_DIM,
 			FontFace = FONT_BOLD,
 			TextSize = 9,
 			TextXAlignment = Enum.TextXAlignment.Right,
-			Parent = btn,
+			Parent = keyBtn,
 		})
 	end
 
@@ -825,11 +881,7 @@ function Page:AddToggle(opts)
 		value = v
 		Tween(btn, { BackgroundColor3 = getState().base }, FAST, Enum.EasingStyle.Quart)
 		Tween(switch, { BackgroundColor3 = trackColor() }, FAST, Enum.EasingStyle.Quart)
-		Tween(knob, {
-			Position = UDim2.new(0, value and 37 or 19, 0.5, 0),
-			BackgroundTransparency = 1,
-		}, FAST, Enum.EasingStyle.Quart)
-		Tween(lens, { Transparency = 0.15 }, FAST, Enum.EasingStyle.Quart)
+		Tween(knob, { Position = UDim2.new(0, value and 37 or 19, 0.5, 0) }, FAST, Enum.EasingStyle.Quart)
 		if fire and opts.callback then opts.callback(value) end
 	end
 
@@ -843,14 +895,48 @@ function Page:AddToggle(opts)
 		apply(not value, true)
 	end)
 
+	-- lente SOLO mientras se presiona la fila: al soltar (dentro o fuera)
+	-- el knob vuelve a quedar solido en blanco y el contorno se oculta
+	local function setLens(on)
+		Tween(knob, { BackgroundTransparency = on and 1 or 0 }, FAST, Enum.EasingStyle.Quart)
+		Tween(lens, { Transparency = on and 0.15 or 1 }, FAST, Enum.EasingStyle.Quart)
+	end
+	btn.MouseButton1Down:Connect(function() setLens(true) end)
+	btn.MouseButton1Up:Connect(function() setLens(false) end)
+	btn.MouseLeave:Connect(function() setLens(false) end)
+	win:_track(UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+			setLens(false)
+		end
+	end))
+
 	-- tecla que enciende/apaga el toggle (sin depender de la UI visible)
 	if key then
-		self.window:_track(UserInputService.InputBegan:Connect(function(input, processed)
+		win:_track(UserInputService.InputBegan:Connect(function(input, processed)
+			if binding then return end
 			if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 			if key == nil or input.KeyCode ~= key then return end
 			if processed and skipProc then return end
 			apply(not value, true)
 		end))
+	end
+
+	-- rebind del bind inline: espera de tecla con timeout (Escape cancela)
+	if keyBtn then
+		keyBtn.MouseButton1Click:Connect(function()
+			if binding then return end
+			binding = true
+			keyLabel.Text = "..."
+			waitForKey(win, function(newKey)
+				binding = false
+				if win.destroyed then return end
+				if newKey then
+					key = newKey
+					if opts.onBind then opts.onBind(key) end
+				end
+				keyLabel.Text = shortKey(key)
+			end)
+		end)
 	end
 
 	self:_refresh()
@@ -941,8 +1027,9 @@ function Page:AddSlider(opts)
 	})
 	Circle(fill)
 
-	-- knob capsula estilo iPhone: al arrastrarlo su centro queda
-	-- transparente y solo se ve su contorno (lente)
+	-- knob capsula estilo iPhone: solo mientras se presiona/arrastra su
+	-- centro queda transparente y se ve su contorno (lente); al soltar
+	-- vuelve a ser solido en blanco
 	local knob = Create("Frame", {
 		Name = "Knob",
 		AnchorPoint = Vector2.new(0.5, 0.5),
@@ -1011,7 +1098,7 @@ function Page:AddSlider(opts)
 	hit.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
-			-- al arrastrarlo: centro transparente, solo el contorno (lente)
+			-- al presionar: centro transparente, solo el contorno (lente)
 			Tween(knob, { BackgroundTransparency = 1 }, FAST, Enum.EasingStyle.Quart)
 			Tween(lens, { Transparency = 0.15 }, FAST, Enum.EasingStyle.Quart)
 			applyFromInput(input)
@@ -1025,6 +1112,9 @@ function Page:AddSlider(opts)
 	self.window:_track(UserInputService.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			if dragging then dragging = false end
+			-- al soltar: knob solido blanco otra vez (lente oculta)
+			Tween(knob, { BackgroundTransparency = 0 }, FAST, Enum.EasingStyle.Quart)
+			Tween(lens, { Transparency = 1 }, FAST, Enum.EasingStyle.Quart)
 		end
 	end))
 
@@ -1085,34 +1175,15 @@ function Page:AddKeybind(opts)
 		if binding then return end
 		binding = true
 		keyLabel.Text = "..."
-
-		local finished = false
-		local conn
-		local function finish(newKey)
-			if finished then return end
-			finished = true
-			if conn then pcall(function() conn:Disconnect() end) end
+		waitForKey(win, function(newKey)
 			binding = false
 			if win.destroyed then return end
 			if newKey then
 				key = newKey
-				refresh()
 				if opts.onBind then opts.onBind(key) end
-			else
-				refresh()
 			end
-		end
-
-		conn = UserInputService.InputBegan:Connect(function(input)
-			if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-			if input.KeyCode == Enum.KeyCode.Escape then
-				finish(nil)
-				return
-			end
-			finish(input.KeyCode)
+			refresh()
 		end)
-		win:_track(conn)
-		task.delay(30, function() finish(nil) end)
 	end)
 
 	self:_refresh()
@@ -1201,7 +1272,8 @@ function Page:AddList(opts)
 	local _, box = makeSearchBox(root, opts, 2)
 
 	-- host de filas: con maxHeight tiene scroll propio, si no crece con la página
-	local rowsHost, rowsParent, isScroll, updateRowsScroll
+	-- (rowsLayout se crea después: se forward-declara para el contentFn del scroll)
+	local rowsHost, rowsParent, isScroll, updateRowsScroll, rowsLayout
 	if maxHeight > 0 then
 		rowsHost = Create("Frame", {
 			Name = "Rows",
@@ -1226,7 +1298,9 @@ function Page:AddList(opts)
 		Create("UIPadding", { PaddingLeft = UDim.new(0, 1), PaddingRight = UDim.new(0, 7), Parent = sf })
 		rowsParent = sf
 		isScroll = true
-		updateRowsScroll = applyVerticalScroll(win, sf, rowsHost, 0, 0)
+		updateRowsScroll = applyVerticalScroll(win, sf, rowsHost, 0, 0, function()
+			return contentHeight(rowsLayout)
+		end)
 	else
 		rowsHost = Create("Frame", {
 			Name = "Rows",
@@ -1240,7 +1314,7 @@ function Page:AddList(opts)
 		isScroll = false
 	end
 
-	local rowsLayout = Create("UIListLayout", {
+	rowsLayout = Create("UIListLayout", {
 		Padding = UDim.new(0, 4),
 		SortOrder = Enum.SortOrder.LayoutOrder,
 		Parent = rowsParent,
@@ -1415,7 +1489,9 @@ function Page:AddDropdown(opts)
 	rowsLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
 		listScroll.CanvasSize = UDim2.new(0, 0, 0, contentHeight(rowsLayout) + 8)
 	end)
-	local updateRowsScroll = applyVerticalScroll(win, listScroll, panel, 34, 6)
+	local updateRowsScroll = applyVerticalScroll(win, listScroll, panel, 34, 6, function()
+		return contentHeight(rowsLayout)
+	end)
 
 	local token = 0
 	local rowFrames = {}
@@ -1577,7 +1653,9 @@ local function makePage(win, name, parent)
 	self.Group = group
 	self.Scroll = scroll
 	self.Layout = layout
-	self.UpdateScroll = applyVerticalScroll(win, scroll, group, 0, 10)
+	self.UpdateScroll = applyVerticalScroll(win, scroll, group, 0, 10, function()
+		return contentHeight(layout)
+	end)
 	return self
 end
 
@@ -1655,12 +1733,14 @@ function Window:ToggleMinimize()
 	if self.minimized then
 		self.MinIcon.Text = "+"
 		self.ContentArea.Visible = false
+		if self.Grip then self.Grip.Visible = false end
 		TweenService:Create(self.MainFrame, info, { Size = self.minSize }):Play()
 		if self.DragBar then
 			TweenService:Create(self.DragBar, info, { Position = DRAG_BAR_OUT }):Play()
 		end
 	else
 		self.MinIcon.Text = "-"
+		if self.Grip then self.Grip.Visible = true end
 		local t = TweenService:Create(self.MainFrame, info, { Size = self.fullSize })
 		t:Play()
 		if self.DragBar then
@@ -2094,11 +2174,14 @@ function FlowLib:CreateWindow(opts)
 		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
 		Color = COLOR.BORDER,
 		Thickness = 1.2,
-		Transparency = 0.1,
+		Transparency = 1,
 		Parent = Body,
 	})
 	Create("UIGradient", { Rotation = 90, Transparency = STROKE_GRADIENT, Parent = WindowStroke })
 	win.WindowStroke = WindowStroke
+	-- el contorno tambien entra en el fade (0.1 visible <-> 1 oculto):
+	-- un UIStroke dentro del CanvasGroup NO se atenúa con GroupTransparency
+	win:_registerFade(WindowStroke, "Transparency", 0.1, 1)
 
 	local GlassBackdrop = Create("ImageLabel", {
 		Name = "GlassBackdrop",
@@ -2181,14 +2264,6 @@ function FlowLib:CreateWindow(opts)
 		})
 		Circle(btn)
 
-		Create("UIStroke", {
-			ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
-			Color = COLOR.BORDER,
-			Thickness = 1.2,
-			Transparency = 0.1,
-			Parent = btn,
-		})
-
 		local icon = Create("TextLabel", {
 			Name = "Icon",
 			Size = UDim2.new(1, 0, 1, 0),
@@ -2209,6 +2284,82 @@ function FlowLib:CreateWindow(opts)
 	win.MinIcon = MinIcon
 	win.CloseBtn = CloseBtn
 	win.CloseIcon = CloseIcon
+
+	-- ------------------------------------------------------------ resize
+	-- Ralla diagonal redondeada (capsula a -45°) en la esquina inferior
+	-- derecha: al mantenerla y arrastrar se redimensiona la ventana.
+	-- Tamaño libre: sin minimo ni maximo (piso de 24px para no perderla)
+	local Grip = Create("Frame", {
+		Name = "ResizeGrip",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.new(0, 46, 0, 7),
+		Position = UDim2.new(1, -34, 1, -34),
+		Rotation = -45,
+		BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+		BackgroundTransparency = 0.7,
+		BorderSizePixel = 0,
+		Active = true,
+		ZIndex = 14,
+		Parent = Body,
+	})
+	Circle(Grip)
+	win.Grip = Grip
+
+	-- se declara antes de los handlers: los closures deben verla
+	local resizing, resizeStart = false, nil
+	local startW, startH, startOffsetX = 0, 0, 0
+
+	Grip.MouseEnter:Connect(function()
+		if not win.destroyed then
+			Tween(Grip, { BackgroundTransparency = 0.5 }, FAST, Enum.EasingStyle.Quart)
+		end
+	end)
+	Grip.MouseLeave:Connect(function()
+		if not win.destroyed then
+			-- si sigue en resize (botón mantenido) se queda en hover
+			Tween(Grip, { BackgroundTransparency = resizing and 0.5 or 0.7 }, FAST, Enum.EasingStyle.Quart)
+		end
+	end)
+
+	Grip.InputBegan:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		if win.destroyed or win.minimized then return end
+		resizing = true
+		resizeStart = Vector2.new(input.Position.X, input.Position.Y)
+		-- Size con Scale 0 = pixeles reales del marco
+		startW = MainFrame.Size.X.Offset
+		startH = MainFrame.Size.Y.Offset
+		startOffsetX = MainFrame.Position.X.Offset
+	end)
+
+	win:_track(UserInputService.InputChanged:Connect(function(input)
+		if not resizing then return end
+		if input.UserInputType ~= Enum.UserInputType.MouseMovement and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		-- sin minimo ni maximo: solo un piso de 24px para no perderla
+		local w = math.max(24, math.floor(startW + (input.Position.X - resizeStart.X)))
+		local h = math.max(24, math.floor(startH + (input.Position.Y - resizeStart.Y)))
+		-- ancla (0.5, 0): compensar solo X para que el borde izquierdo
+		-- quede fijo; Y no se toca (la ventana crece hacia abajo)
+		local pos = MainFrame.Position
+		MainFrame.Position = UDim2.new(pos.X.Scale, startOffsetX + math.floor((w - startW) / 2), pos.Y.Scale, pos.Y.Offset)
+		MainFrame.Size = UDim2.new(0, w, 0, h)
+		win.fullSize = UDim2.new(0, w, 0, h)
+		win.minSize = UDim2.new(0, w, 0, HEADER_H)
+	end))
+
+	win:_track(UserInputService.InputEnded:Connect(function(input)
+		if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) and resizing then
+			resizing = false
+			-- el contenido se re-mide contra el tamaño nuevo
+			for _, page in ipairs(win._pages) do
+				if page.UpdateScroll then page.UpdateScroll() end
+			end
+		end
+	end))
 
 	local ContentArea = Create("Frame", {
 		Name = "ContentArea",
