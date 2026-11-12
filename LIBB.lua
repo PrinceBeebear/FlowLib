@@ -148,7 +148,7 @@ local SHORT_KEYS = {
 
 -- Nombre legible de un Enum.KeyCode (funciona tambien en entornos sin .Name)
 local function keyNameOf(key)
-	if key == nil then return "NONE" end
+	if key == nil then return "" end
 	local n = key.Name
 	if type(n) ~= "string" then
 		n = tostring(key)
@@ -818,7 +818,7 @@ function Page:AddToggle(opts)
 
 	-- bind inline: pildora redondeada a la izquierda del switch (4px de
 	-- hueco antes de la pista). Icono y tecla bien centrados dentro
-	local keyBtn, keyLabel, binding = nil, nil, false
+	local keyBtn, keyLabel, bindIcon, binding = nil, nil, nil, false
 	if key then
 		keyBtn = Create("TextButton", {
 			Name = "KeyBtn",
@@ -838,10 +838,11 @@ function Page:AddToggle(opts)
 		keyBtn.MouseLeave:Connect(function()
 			Tween(keyBtn, { BackgroundColor3 = Color3.fromRGB(48, 48, 48) }, FAST, Enum.EasingStyle.Quart)
 		end)
-		Create("ImageLabel", {
+		bindIcon = Create("ImageLabel", {
 			Name = "BindIcon",
-			Size = UDim2.new(0, 16, 0, 16),
-			Position = UDim2.new(0, 5, 0.5, -8),
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.new(0, 20, 0, 20),
+			Position = UDim2.new(0.5, 0, 0.5, 0),
 			BackgroundTransparency = 1,
 			Image = KEYBIND_ICON,
 			ImageColor3 = COLOR.TEXT_DIM,
@@ -850,17 +851,36 @@ function Page:AddToggle(opts)
 		})
 		keyLabel = Create("TextLabel", {
 			Name = "Key",
-			Size = UDim2.new(0, 27, 1, 0),
-			Position = UDim2.new(0, 23, 0, 0),
+			Size = UDim2.new(1, -8, 1, 0),
+			Position = UDim2.new(0, 4, 0, 0),
 			BackgroundTransparency = 1,
-			Text = shortKey(key),
+			Text = "",
 			TextColor3 = COLOR.TEXT_DIM,
 			FontFace = FONT_BOLD,
 			TextSize = 9,
-			TextXAlignment = Enum.TextXAlignment.Right,
+			TextXAlignment = Enum.TextXAlignment.Center,
 			Parent = keyBtn,
 		})
 	end
+
+	-- estados del bind: adhesivo (sin tecla) / "..." (esperando) / tecla
+	local function renderBind()
+		if not keyBtn then return end
+		if binding then
+			bindIcon.Visible = false
+			keyLabel.Visible = true
+			keyLabel.Text = "..."
+		elseif key then
+			bindIcon.Visible = false
+			keyLabel.Visible = true
+			keyLabel.Text = shortKey(key)
+		else
+			bindIcon.Visible = true
+			keyLabel.Visible = false
+			keyLabel.Text = ""
+		end
+	end
+	renderBind()
 
 	local getState
 	getState = function()
@@ -900,11 +920,11 @@ function Page:AddToggle(opts)
 	-- blanco y a su tamaño original
 	local function setLens(on)
 		Tween(knob, {
-			BackgroundTransparency = on and 1 or 0,
+			BackgroundTransparency = on and 0.5 or 0,
 			Size = on and UDim2.new(0, 36, 0, 24) or UDim2.new(0, 32, 0, 20),
 		}, FAST, Enum.EasingStyle.Quart)
 		knobCorner.CornerRadius = UDim.new(0, on and 12 or 10)
-		Tween(lens, { Transparency = on and 0.15 or 1 }, FAST, Enum.EasingStyle.Quart)
+		Tween(lens, { Transparency = on and 0.1 or 1, Thickness = on and 2 or 1.4 }, FAST, Enum.EasingStyle.Quart)
 	end
 	btn.MouseButton1Down:Connect(function() setLens(true) end)
 	btn.MouseButton1Up:Connect(function() setLens(false) end)
@@ -928,17 +948,18 @@ function Page:AddToggle(opts)
 
 	-- rebind del bind inline: espera de tecla con timeout (Escape cancela)
 	if keyBtn then
+		-- con tecla ya bindeada: SOLO la elimina (no pide otra tecla)
+		-- y el adhesivo vuelve a ocupar el boton
 		keyBtn.MouseButton1Click:Connect(function()
 			if binding then return end
-			-- con tecla ya bindeada: SOLO la elimina (no pide otra tecla)
 			if key ~= nil then
 				key = nil
 				if opts.onBind then pcall(opts.onBind, nil) end
-				keyLabel.Text = "NONE"
+				renderBind()
 				return
 			end
 			binding = true
-			keyLabel.Text = "..."
+			renderBind()
 			waitForKey(win, function(newKey)
 				binding = false
 				if win.destroyed then return end
@@ -946,7 +967,7 @@ function Page:AddToggle(opts)
 					key = newKey
 					if opts.onBind then opts.onBind(key) end
 				end
-				keyLabel.Text = shortKey(key)
+				renderBind()
 			end)
 		end)
 	end
@@ -960,7 +981,7 @@ function Page:AddToggle(opts)
 		GetKey = function() return key end,
 		SetKey = function(k)
 			key = toKeyCode(k)
-			if keyLabel then keyLabel.Text = shortKey(key) end
+			renderBind()
 		end,
 	}
 end
@@ -1114,8 +1135,8 @@ function Page:AddSlider(opts)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
 			dragging = true
 			-- al presionar: centro transparente (lente) y knob mas grande
-			Tween(knob, { BackgroundTransparency = 1, Size = UDim2.new(0, 26, 0, 16) }, FAST, Enum.EasingStyle.Quart)
-			Tween(lens, { Transparency = 0.15 }, FAST, Enum.EasingStyle.Quart)
+			Tween(knob, { BackgroundTransparency = 0.5, Size = UDim2.new(0, 26, 0, 16) }, FAST, Enum.EasingStyle.Quart)
+			Tween(lens, { Transparency = 0.1, Thickness = 2 }, FAST, Enum.EasingStyle.Quart)
 			applyFromInput(input)
 		end
 	end)
@@ -1129,7 +1150,7 @@ function Page:AddSlider(opts)
 			if dragging then dragging = false end
 			-- al soltar: knob solido y tamaño original otra vez (lente oculta)
 			Tween(knob, { BackgroundTransparency = 0, Size = UDim2.new(0, 20, 0, 12) }, FAST, Enum.EasingStyle.Quart)
-			Tween(lens, { Transparency = 1 }, FAST, Enum.EasingStyle.Quart)
+			Tween(lens, { Transparency = 1, Thickness = 1.4 }, FAST, Enum.EasingStyle.Quart)
 		end
 	end))
 
@@ -1152,23 +1173,33 @@ function Page:AddKeybind(opts)
 
 	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, ROW_H, 82)
 
-	-- icono por defecto (decal) que indica que la fila es un bind
-	Create("ImageLabel", {
+	-- adhesivo del bind: visible solo cuando NO hay tecla (sin NONE)
+	local bindIcon = Create("ImageLabel", {
 		Name = "BindIcon",
-		Size = UDim2.new(0, 18, 0, 18),
-		Position = UDim2.new(1, -74, 0.5, -9),
+		Size = UDim2.new(0, 20, 0, 20),
+		Position = UDim2.new(1, -53, 0.5, -10),
 		BackgroundTransparency = 1,
 		Image = KEYBIND_ICON,
 		ImageColor3 = COLOR.TEXT_DIM,
 		Parent = btn,
 	})
 
-	local keyLabel = rightLabel(btn, shortKey(key), COLOR.TEXT_DIM, 44)
+	local keyLabel = rightLabel(btn, "", COLOR.TEXT_DIM, 44)
 	keyLabel.TextSize = 9
 
+	-- estados: adhesivo (sin tecla) / "..." (esperando) / tecla
 	local function refresh()
-		keyLabel.Text = shortKey(key)
 		keyLabel.TextColor3 = COLOR.TEXT_DIM
+		if binding then
+			bindIcon.Visible = false
+			keyLabel.Text = "..."
+		elseif key then
+			bindIcon.Visible = false
+			keyLabel.Text = shortKey(key)
+		else
+			bindIcon.Visible = true
+			keyLabel.Text = ""
+		end
 	end
 	refresh()
 
@@ -1197,7 +1228,7 @@ function Page:AddKeybind(opts)
 			return
 		end
 		binding = true
-		keyLabel.Text = "..."
+		refresh()
 		waitForKey(win, function(newKey)
 			binding = false
 			if win.destroyed then return end
@@ -2038,24 +2069,6 @@ function Window:AddSearchBox(o) return self._defaultPage:AddSearchBox(o) end
 function Window:AddList(o) return self._defaultPage:AddList(o) end
 function Window:AddDropdown(o) return self._defaultPage:AddDropdown(o) end
 
--- Fila que reasigna la tecla para mostrar/ocultar la ventana
-function Window:AddUIBind(opts)
-	opts = opts or {}
-	return self._defaultPage:AddKeybind({
-		name = opts.name or "Menu",
-		default = self.UIBind,
-		onBind = function(key) self:SetUIBind(key) end,
-	})
-end
-
-function Window:SetUIBind(key)
-	self.UIBind = toKeyCode(key)
-end
-
-function Window:GetUIBind()
-	return self.UIBind
-end
-
 -- ============================================================== CreateWindow
 local function GetSafeParent()
 	local ok, parent = pcall(function()
@@ -2129,7 +2142,6 @@ function FlowLib:CreateWindow(opts)
 		_dragTarget = nil,
 		_resizeTarget = nil,
 		resizeMin = nil, -- se calcula abajo desde opts.minSize
-		UIBind = toKeyCode(opts.keybind),
 	}, Window)
 
 	-- minimo de resize configurable desde el script (opts.minSize = {w, h}).
@@ -2205,13 +2217,17 @@ function FlowLib:CreateWindow(opts)
 	Circle(DragBar)
 	win.DragBar = DragBar
 
+	-- hover: la barra sube un poquito (nunca hacia abajo), tanto
+	-- dentro de la ventana como afuera (ventana minimizada)
 	local function dragBarHover(on)
 		if win.destroyed then return end
 		local tr = 1
 		if win.visible then tr = on and 0 or BAR_TRANSPARENCY end
+		local baseY = win.minimized and DRAG_BAR_OUT.Y.Offset or DRAG_BAR_IN.Y.Offset
 		Tween(DragBar, {
 			BackgroundTransparency = tr,
 			Size = on and DRAG_BAR_SIZE_HOVE or DRAG_BAR_SIZE,
+			Position = UDim2.new(0.5, 0, 0, on and (baseY - 3) or baseY),
 		}, FAST, Enum.EasingStyle.Quart)
 	end
 	DragBar.MouseEnter:Connect(function() dragBarHover(true) end)
@@ -2367,20 +2383,20 @@ function FlowLib:CreateWindow(opts)
 		ZIndex = 14,
 		Parent = Body,
 	})
-	-- arco por segmentos (sin assets): barras redondeadas tangentes a la
-	-- curva de la esquina; mismo centro y estilo que la esquina de la
-	-- ventana (radio 24) y 5px por dentro del borde
+	-- arco por segmentos (sin assets): 12 barras finas tangentes a
+	-- la curva, con solape suficiente para leerse como UNA linea
+	-- continua y suave (mismo centro que la esquina de la ventana)
 	local gripArc = {}
-	for i = 0, 75, 15 do
-		local tm = math.rad(i + 7.5)
+	for i = 0, 82.5, 7.5 do
+		local tm = math.rad(i + 3.75)
 		local seg = Create("Frame", {
 			Name = "ArcSeg",
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			Size = UDim2.new(0, 2 * 19 * math.sin(math.rad(7.5)) + 1.5, 0, 2.5),
+			Size = UDim2.new(0, 2 * 19 * math.sin(math.rad(3.75)) + 2, 0, 2),
 			Position = UDim2.new(0, 12 + 19 * math.cos(tm), 0, 12 + 19 * math.sin(tm)),
-			Rotation = i + 97.5,
+			Rotation = i + 93.75,
 			BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-			BackgroundTransparency = 0.7,
+			BackgroundTransparency = 0.72,
 			BorderSizePixel = 0,
 			ZIndex = 14,
 			Parent = Grip,
@@ -2566,15 +2582,6 @@ function FlowLib:CreateWindow(opts)
 	CloseBtn.MouseButton1Click:Connect(function()
 		win:Destroy()
 	end)
-
-	-- bind de la UI: se conecta siempre (la tecla puede asignarse despues)
-	win:_track(UserInputService.InputBegan:Connect(function(input, processed)
-		if win.destroyed or not win.UIBind then return end
-		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-		if input.KeyCode ~= win.UIBind then return end
-		if processed and opts.skipGameProcessedUI then return end
-		win:SetVisible(not win.visible)
-	end))
 
 	-- ------------------------------------------------------------ singleton
 	if pendingSingleton then
