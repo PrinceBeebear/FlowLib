@@ -199,11 +199,10 @@ function FlowLib:GetPlayerItems(excludeLocal)
 end
 
 local function connectTextChanged(box, fn)
-        if box.TextChanged then
-                box.TextChanged:Connect(fn)
-        else
-                box:GetPropertyChangedSignal("Text"):Connect(fn)
-        end
+        -- TextBox no tiene el evento "TextChanged" en Roblox; indexarlo lanza
+        -- "TextChanged is not a valid member of TextBox". Se usa siempre el
+        -- GetPropertyChangedSignal, que es el estandar y funciona en todo lado.
+        box:GetPropertyChangedSignal("Text"):Connect(fn)
 end
 
 local function resolveIcon(item, opts)
