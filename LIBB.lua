@@ -480,7 +480,7 @@ local function makeRow(parent, order, name, height, rightPad)
 	local label = Create("TextLabel", {
 		Name = "Label",
 		Size = UDim2.new(1, -(rightPad or 24), 1, 0),
-		Position = UDim2.new(0, 14, 0, 0),
+		Position = UDim2.new(0, 10, 0, 0),
 		BackgroundTransparency = 1,
 		Text = name or "",
 		TextColor3 = COLOR.TEXT,
@@ -710,19 +710,19 @@ end
 local function waitForKey(win, onKey)
 	local finished = false
 	local conn
-	local function finish(newKey)
+	local function finish(newKey, sourceInput)
 		if finished then return end
 		finished = true
 		if conn then pcall(function() conn:Disconnect() end) end
-		onKey(newKey)
+		onKey(newKey, sourceInput)
 	end
 	conn = UserInputService.InputBegan:Connect(function(input)
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 		if input.KeyCode == Enum.KeyCode.Escape then
-			finish(nil)
+			finish(nil, input)
 			return
 		end
-		finish(input.KeyCode)
+		finish(input.KeyCode, input)
 	end)
 	win:_track(conn)
 	task.delay(30, function() finish(nil) end)
@@ -780,7 +780,7 @@ function Page:AddToggle(opts)
 		Parent = knob,
 	})
 
-	local keyBtn, keyLabel, bindIcon, binding = nil, nil, nil, false
+	local keyBtn, keyLabel, bindIcon, binding, boundInput = nil, nil, nil, false, nil
 	if key then
 		keyBtn = Create("TextButton", {
 			Name = "KeyBtn",
@@ -803,7 +803,7 @@ function Page:AddToggle(opts)
 		bindIcon = Create("ImageLabel", {
 			Name = "BindIcon",
 			AnchorPoint = Vector2.new(0.5, 0.5),
-			Size = UDim2.new(0, 30, 0, 22),
+			Size = UDim2.new(0, 24, 0, 18),
 			Position = UDim2.new(0.5, 0, 0.5, 0),
 			BackgroundTransparency = 1,
 			Image = KEYBIND_ICON,
@@ -822,7 +822,7 @@ function Page:AddToggle(opts)
 			Text = "",
 			TextColor3 = COLOR.TEXT_DIM,
 			FontFace = FONT_BOLD,
-			TextSize = 9,
+			TextSize = 11,
 			TextXAlignment = Enum.TextXAlignment.Center,
 			Parent = keyBtn,
 		})
@@ -898,6 +898,7 @@ function Page:AddToggle(opts)
 	if key then
 		win:_track(UserInputService.InputBegan:Connect(function(input, processed)
 			if binding then return end
+			if input == boundInput then return end
 			if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 			if key == nil or input.KeyCode ~= key then return end
 			if processed and skipProc then return end
@@ -916,11 +917,13 @@ function Page:AddToggle(opts)
 			end
 			binding = true
 			renderBind()
-			waitForKey(win, function(newKey)
+			waitForKey(win, function(newKey, sourceInput)
 				binding = false
 				if win.destroyed then return end
 				if newKey then
 					key = newKey
+					-- el input que asigno la tecla no debe activar el toggle
+					boundInput = sourceInput
 					if opts.onBind then opts.onBind(key) end
 				end
 				renderBind()
@@ -1137,6 +1140,7 @@ function Page:AddKeybind(opts)
 	local win = self.window
 	local key = toKeyCode(opts.default)
 	local binding = false
+	local boundInput = nil
 	local skipGameProcessed = opts.skipGameProcessed
 	if skipGameProcessed == nil then skipGameProcessed = true end
 
@@ -1145,7 +1149,7 @@ function Page:AddKeybind(opts)
 	local bindIcon = Create("ImageLabel", {
 		Name = "BindIcon",
 		AnchorPoint = Vector2.new(0.5, 0.5),
-		Size = UDim2.new(0, 30, 0, 22),
+		Size = UDim2.new(0, 24, 0, 18),
 		Position = UDim2.new(1, -53, 0.5, 0),
 		BackgroundTransparency = 1,
 		Image = KEYBIND_ICON,
@@ -1157,7 +1161,7 @@ function Page:AddKeybind(opts)
 	})
 
 	local keyLabel = rightLabel(btn, "", COLOR.TEXT_DIM, 44)
-	keyLabel.TextSize = 9
+	keyLabel.TextSize = 11
 
 	local function refresh()
 		keyLabel.TextColor3 = COLOR.TEXT_DIM
@@ -1176,6 +1180,7 @@ function Page:AddKeybind(opts)
 
 	self.window:_track(UserInputService.InputBegan:Connect(function(input, processed)
 		if binding or win.destroyed then return end
+		if input == boundInput then return end
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 		if key == nil or input.KeyCode ~= key then return end
 		if processed and skipGameProcessed then return end
@@ -1196,11 +1201,13 @@ function Page:AddKeybind(opts)
 		end
 		binding = true
 		refresh()
-		waitForKey(win, function(newKey)
+		waitForKey(win, function(newKey, sourceInput)
 			binding = false
 			if win.destroyed then return end
 			if newKey then
 				key = newKey
+				-- el input que asigno la tecla no debe disparar el callback
+				boundInput = sourceInput
 				if opts.onBind then opts.onBind(key) end
 			end
 			refresh()
@@ -1634,8 +1641,8 @@ local function makePage(win, name, parent)
 
 	local group = Create("Frame", {
 		Name = "Page_" .. name,
-		Size = UDim2.new(1, -28, 1, -20),
-		Position = UDim2.new(0, 18, 0, 10),
+		Size = UDim2.new(1, -24, 1, -20),
+		Position = UDim2.new(0, 14, 0, 10),
 		BackgroundTransparency = 1,
 		ClipsDescendants = true,
 		Visible = false,
@@ -1654,7 +1661,7 @@ local function makePage(win, name, parent)
 		ZIndex = 5,
 		Parent = group,
 	})
-	Create("UIPadding", { PaddingLeft = UDim.new(0, 4), PaddingRight = UDim.new(0, 8), Parent = scroll })
+	Create("UIPadding", { PaddingLeft = UDim.new(0, 2), PaddingRight = UDim.new(0, 8), Parent = scroll })
 
 	local layout = Create("UIListLayout", {
 		Padding = UDim.new(0, 6),
@@ -2081,6 +2088,7 @@ function FlowLib:CreateWindow(opts)
 		_dragTarget = nil,
 		_resizeTarget = nil,
 		resizeMin = nil,
+		UIBind = toKeyCode(opts.keybind),
 	}, Window)
 
 	local minRW, minRH = 180, 160
@@ -2117,7 +2125,7 @@ function FlowLib:CreateWindow(opts)
 
 	local WinShadow = Create("UIShadow", {
 		Name = "WinShadow",
-		BlurRadius = UDim.new(0, 16),
+		BlurRadius = UDim.new(0, 10),
 		Color = Color3.fromRGB(0, 0, 0),
 		Transparency = 1,
 		Offset = UDim2.new(0, 0, 0, 0),
@@ -2220,7 +2228,7 @@ function FlowLib:CreateWindow(opts)
 	local Title = Create("TextLabel", {
 		Name = "Title",
 		Size = UDim2.new(1, -90, 0, HEADER_H),
-		Position = UDim2.new(0, 18, 0, 0),
+		Position = UDim2.new(0, 14, 0, 0),
 		BackgroundTransparency = 1,
 		Text = title,
 		TextColor3 = COLOR.TEXT,
@@ -2455,6 +2463,15 @@ function FlowLib:CreateWindow(opts)
 	CloseBtn.MouseButton1Click:Connect(function()
 		win:Destroy()
 	end)
+
+	-- bind de la UI: muestra/oculta la ventana (opts.keybind)
+	win:_track(UserInputService.InputBegan:Connect(function(input, processed)
+		if win.destroyed or not win.UIBind then return end
+		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+		if input.KeyCode ~= win.UIBind then return end
+		if processed and opts.skipGameProcessedUI then return end
+		win:SetVisible(not win.visible)
+	end))
 
 	if pendingSingleton then
 		win._singletonKey = pendingSingleton

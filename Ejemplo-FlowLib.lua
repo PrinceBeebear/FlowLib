@@ -48,7 +48,6 @@ Tab2:AddDropdown({
 Tab2:AddSearchBox({ placeholder = "Buscar...", callback = function(text) end })
 
 Tab3:AddSection({ name = "Atajos" })
-Win:AddUIBind({ name = "Mostrar/ocultar menú" })
 Tab3:AddLabel({ text = "Fin del ejemplo." })
 
 return Win
