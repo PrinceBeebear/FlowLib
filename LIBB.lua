@@ -7,7 +7,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 local FlowLib = {}
-FlowLib.Version = "1.0.0"
+FlowLib.Version = "1.2.0" -- 1.2.0: fix TextChanged (dropdown) + despliegue animado + default seleccionado
 
 local function Create(className, props, children)
         local inst = Instance.new(className)
