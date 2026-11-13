@@ -7,7 +7,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 local FlowLib = {}
-FlowLib.Version = "1.2.0" -- 1.2.0: fix TextChanged (dropdown) + despliegue animado + default seleccionado
+FlowLib.Version = "1.2.1" -- 1.2.1: fix bind (InputObject reutilizado) + toggle transparent | 1.2.0: fix TextChanged + despliegue animado
 
 local function Create(className, props, children)
         local inst = Instance.new(className)
@@ -738,8 +738,11 @@ function Page:AddToggle(opts)
         local key = toKeyCode(opts.keybind)
         local skipProc = opts.skipGameProcessed
         if skipProc == nil then skipProc = true end
+        -- transparent = true: fila sin recuadro (solo texto + bind + switch)
+        local transparent = (opts.transparent == true)
         local win = self.window
         local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, ROW_H, key and 128 or 68)
+        if transparent then btn.BackgroundTransparency = 1 end
 
         local switch = Create("Frame", {
                 Name = "Switch",
@@ -784,7 +787,7 @@ function Page:AddToggle(opts)
                 Parent = knob,
         })
 
-        local keyBtn, keyLabel, bindIcon, binding, boundInput = nil, nil, nil, false, nil
+        local keyBtn, keyLabel, bindIcon, binding, lastBindSet = nil, nil, nil, false, nil
         if key then
                 keyBtn = Create("TextButton", {
                         Name = "KeyBtn",
@@ -857,7 +860,7 @@ function Page:AddToggle(opts)
                 end
                 return { base = COLOR.ROW, hover = COLOR.ROW_HOVER, press = COLOR.ROW_PRESS }
         end
-        bindRowHover(btn, getState)
+        if not transparent then bindRowHover(btn, getState) end
 
         local function trackColor()
                 if value then return Color3.fromRGB(150, 150, 150) end
@@ -902,7 +905,10 @@ function Page:AddToggle(opts)
         if key then
                 win:_track(UserInputService.InputBegan:Connect(function(input, processed)
                         if binding then return end
-                        if input == boundInput then return end
+                        -- NO comparar InputObject por identidad: algunos executors reutilizan
+                        -- el mismo objeto de input y el bind "se olvida" de su tecla hasta
+                        -- un alt-tab. Se usa una ventana de tiempo corta tras asignar:
+                        if lastBindSet and os.clock() - lastBindSet < 0.2 then return end
                         if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
                         if key == nil or input.KeyCode ~= key then return end
                         if processed and skipProc then return end
@@ -926,8 +932,9 @@ function Page:AddToggle(opts)
                                 if win.destroyed then return end
                                 if newKey then
                                         key = newKey
-                                        -- el input que asigno la tecla no debe activar el toggle
-                                        boundInput = sourceInput
+                                        -- marca de tiempo: suprime el disparo inmediato del input que
+                                        -- asigno el bind (sin comparar InputObject por identidad)
+                                        lastBindSet = os.clock()
                                         if opts.onBind then opts.onBind(key) end
                                 end
                                 renderBind()
@@ -1144,7 +1151,7 @@ function Page:AddKeybind(opts)
         local win = self.window
         local key = toKeyCode(opts.default)
         local binding = false
-        local boundInput = nil
+        local lastBindSet = nil
         local skipGameProcessed = opts.skipGameProcessed
         if skipGameProcessed == nil then skipGameProcessed = true end
 
@@ -1184,7 +1191,9 @@ function Page:AddKeybind(opts)
 
         self.window:_track(UserInputService.InputBegan:Connect(function(input, processed)
                 if binding or win.destroyed then return end
-                if input == boundInput then return end
+                -- NO comparar InputObject por identidad (algunos executors lo
+                -- reutilizan y el bind deja de responder): ventana de tiempo
+                if lastBindSet and os.clock() - lastBindSet < 0.2 then return end
                 if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
                 if key == nil or input.KeyCode ~= key then return end
                 if processed and skipGameProcessed then return end
@@ -1210,8 +1219,9 @@ function Page:AddKeybind(opts)
                         if win.destroyed then return end
                         if newKey then
                                 key = newKey
-                                -- el input que asigno la tecla no debe disparar el callback
-                                boundInput = sourceInput
+                                -- marca de tiempo: suprime el disparo inmediato del input que
+                                -- asigno el bind (sin comparar InputObject por identidad)
+                                lastBindSet = os.clock()
                                 if opts.onBind then opts.onBind(key) end
                         end
                         refresh()
