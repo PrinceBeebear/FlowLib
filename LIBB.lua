@@ -7,7 +7,7 @@ local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
 local FlowLib = {}
-FlowLib.Version = "1.0.0"
+FlowLib.Version = "1.3.0"
 
 local function Create(className, props, children)
 	local inst = Instance.new(className)
@@ -62,6 +62,12 @@ local function contentHeight(layout)
 	return 0
 end
 
+local function contentWidth(layout)
+	local cs = layout and layout.AbsoluteContentSize
+	if cs and cs.X then return cs.X end
+	return 0
+end
+
 local COLOR = {
 	BG        = Color3.fromRGB(12, 12, 12),
 	ROW       = Color3.fromRGB(30, 30, 30),
@@ -76,37 +82,41 @@ local COLOR = {
 	DANGER    = Color3.fromRGB(255, 60, 60),
 	GOLD      = Color3.fromRGB(255, 215, 0),
 	GREEN     = Color3.fromRGB(60, 180, 80),
+	BLUE      = Color3.fromRGB(0, 170, 255),
+	RED_BG    = Color3.fromRGB(45, 18, 18),
 	FIELD     = Color3.fromRGB(20, 20, 20),
 	TAB_IDLE  = Color3.fromRGB(160, 160, 160),
 	ROW_SEL   = Color3.fromRGB(60, 60, 60),
 }
 FlowLib.Colors = COLOR
 
-local CORNER_RADIUS     = 24
-local ROW_RADIUS        = 8
-local ROW_H             = 36
-local ROW_TRANSPARENCY  = 0.3
-local SIDE_MARGIN       = 10
-local SCROLL_W          = 5
-local SCROLL_GAP        = 8
-local FADE_TIME         = 0.3
-local FAST              = 0.15
--- animacion del dropdown (apertura/cierre y cascada de filas)
-local DROP_TIME         = 0.3    -- apertura del panel (Quart Out)
-local DROP_CLOSE        = 0.22   -- cierre del panel
-local DROP_ROW_FADE     = 0.22   -- fade-in de cada fila de la lista
-local DROP_STAGGER      = 0.035  -- retardo entre filas (cascada)
-local HEADER_H          = 38
+local CORNER_RADIUS       = 24
+local ROW_RADIUS          = 8
+local ROW_H               = 36
+local ROW_TRANSPARENCY    = 0.3
+local SIDE_MARGIN         = 10
+local SCROLL_W            = 5
+local SCROLL_GAP          = 8
+local FADE_TIME           = 0.3
+local FAST                = 0.15
+local DROP_TIME           = 0.3
+local DROP_CLOSE          = 0.22
+local DROP_ROW_FADE       = 0.22
+local DROP_STAGGER        = 0.035
+local HEADER_H            = 38
+local SAFE_TEXT_LIMIT     = 90000
 
 local SHADOW_TRANSPARENCY = 0.55
 local BAR_TRANSPARENCY    = 0.6
-local DRAG_BAR_IN        = UDim2.new(0.5, 0, 0, 5)
-local DRAG_BAR_OUT       = UDim2.new(0.5, 0, 0, -9)
-local DRAG_BAR_SIZE      = UDim2.new(0, 72, 0, 5)
-local DRAG_BAR_SIZE_HOVE = UDim2.new(0, 88, 0, 7)
+local DRAG_BAR_IN         = UDim2.new(0.5, 0, 0, 5)
+local DRAG_BAR_OUT        = UDim2.new(0.5, 0, 0, -9)
+local DRAG_BAR_SIZE       = UDim2.new(0, 72, 0, 5)
+local DRAG_BAR_SIZE_HOVE  = UDim2.new(0, 88, 0, 7)
 
 local KEYBIND_ICON = "rbxthumb://type=Asset&id=125168489828313&w=420&h=420"
-local RESIZE_ICON = "rbxthumb://type=Asset&id=82041111650203&w=420&h=420"
+local RESIZE_ICON  = "rbxthumb://type=Asset&id=82041111650203&w=420&h=420"
+local STAR_ICON    = "rbxassetid://90412510481264"
+local COPY_ICON    = "rbxassetid://95587165617428"
 
 local STROKE_GRADIENT = NumberSequence.new({
 	NumberSequenceKeypoint.new(0, 0.4),
@@ -128,8 +138,9 @@ end
 
 local FONT_BOLD = makeFont(Enum.FontWeight.Bold)
 local FONT_MED  = makeFont(Enum.FontWeight.Medium)
+local FONT_CODE = Font.fromEnum(Enum.Font.Code)
 
-FlowLib.Fonts = { Bold = FONT_BOLD, Medium = FONT_MED }
+FlowLib.Fonts = { Bold = FONT_BOLD, Medium = FONT_MED, Code = FONT_CODE }
 
 local SHORT_KEYS = {
 	LeftShift = "LS", RightShift = "RS",
@@ -166,6 +177,26 @@ local function toKeyCode(v)
 	return v
 end
 
+local function smartSearch(text, query)
+	if not query or query == "" then return true end
+	local lowerText = tostring(text or ""):lower()
+	for word in query:lower():gmatch("%S+") do
+		if not lowerText:find(word, 1, true) then
+			return false
+		end
+	end
+	return true
+end
+
+local function setSafeText(box, rawText)
+	rawText = tostring(rawText or "")
+	if #rawText > SAFE_TEXT_LIMIT then
+		box.Text = rawText:sub(1, SAFE_TEXT_LIMIT) .. "\n-- [Truncated] --"
+	else
+		box.Text = rawText
+	end
+end
+
 local pendingSingleton = nil
 
 function FlowLib:Singleton(key)
@@ -199,11 +230,7 @@ function FlowLib:GetPlayerItems(excludeLocal)
 end
 
 local function connectTextChanged(box, fn)
-	if box.TextChanged then
-		box.TextChanged:Connect(fn)
-	else
-		box:GetPropertyChangedSignal("Text"):Connect(fn)
-	end
+	box:GetPropertyChangedSignal("Text"):Connect(fn)
 end
 
 local function resolveIcon(item, opts)
@@ -236,11 +263,8 @@ end
 
 local function itemMatches(item, query)
 	if not query or query == "" then return true end
-	query = tostring(query):lower()
-	if tostring(item.name or ""):lower():find(query, 1, true) then return true end
-	if tostring(item.subtitle or ""):lower():find(query, 1, true) then return true end
-	if tostring(item.id or ""):lower():find(query, 1, true) then return true end
-	return false
+	local hay = tostring(item.name or "") .. " " .. tostring(item.subtitle or "") .. " " .. tostring(item.id or "")
+	return smartSearch(hay, query)
 end
 
 local function applyVerticalScroll(win, scrollFrame, parentFrame, topOffset, bottomOffset, contentFn, reclaimWidth)
@@ -686,30 +710,42 @@ function Page:AddLabel(opts)
 	return {
 		Frame = label,
 		SetText = function(t) label.Text = tostring(t) end,
+		SetColor = function(c) label.TextColor3 = c or COLOR.TEXT_DIM end,
 	}
 end
 
 function Page:AddButton(opts)
 	opts = opts or {}
-	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, opts.height, opts.value and 56 or nil)
-	if opts.value then
-		rightLabel(btn, tostring(opts.value), COLOR.TEXT_DIM)
+	local rightW = opts.rightWidth or 80
+	local hasRight = (opts.value ~= nil) or (opts.status ~= nil)
+	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, opts.height, hasRight and (rightW + 16) or nil)
+	local rl = nil
+	if hasRight then
+		rl = rightLabel(btn, tostring(opts.value or opts.status or ""), opts.statusColor or COLOR.TEXT_DIM, rightW)
 	end
+	local baseCol = opts.color or COLOR.ROW
+	btn.BackgroundColor3 = baseCol
 	bindRowHover(btn, function()
-		return { base = COLOR.ROW, hover = COLOR.ROW_HOVER, press = COLOR.ROW_PRESS }
+		return { base = baseCol, hover = COLOR.ROW_HOVER, press = COLOR.ROW_PRESS }
 	end)
-	btn.MouseButton1Click:Connect(function()
-		if opts.callback then opts.callback(btn) end
-	end)
-	self:_refresh()
-	return {
+	local ctrl = {
 		Frame = btn,
 		SetText = function(t) label.Text = tostring(t) end,
-		SetValue = function(v)
-			local rl = btn:FindFirstChild("Right")
-			if rl then rl.Text = tostring(v) end
+		SetColor = function(c)
+			baseCol = c or COLOR.ROW
+			btn.BackgroundColor3 = baseCol
+		end,
+		SetValue = function(v, col)
+			if not rl then rl = rightLabel(btn, "", col or COLOR.TEXT_DIM, rightW) end
+			rl.Text = tostring(v)
+			if col then rl.TextColor3 = col end
 		end,
 	}
+	btn.MouseButton1Click:Connect(function()
+		if opts.callback then opts.callback(ctrl, btn) end
+	end)
+	self:_refresh()
+	return ctrl
 end
 
 local function waitForKey(win, onKey)
@@ -723,7 +759,7 @@ local function waitForKey(win, onKey)
 	end
 	conn = UserInputService.InputBegan:Connect(function(input)
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
-		if input.KeyCode == Enum.KeyCode.Escape then
+		if input.KeyCode == Enum.KeyCode.Escape or input.KeyCode == Enum.KeyCode.Backspace then
 			finish(nil, input)
 			return
 		end
@@ -739,8 +775,10 @@ function Page:AddToggle(opts)
 	local key = toKeyCode(opts.keybind)
 	local skipProc = opts.skipGameProcessed
 	if skipProc == nil then skipProc = true end
+	local transparent = (opts.transparent == true)
 	local win = self.window
 	local btn, label = makeRow(self.Scroll, self:_nextOrder(), opts.name, ROW_H, key and 128 or 68)
+	if transparent then btn.BackgroundTransparency = 1 end
 
 	local switch = Create("Frame", {
 		Name = "Switch",
@@ -785,8 +823,8 @@ function Page:AddToggle(opts)
 		Parent = knob,
 	})
 
-	local keyBtn, keyLabel, bindIcon, binding, boundInput = nil, nil, nil, false, nil
-	if key then
+	local keyBtn, keyLabel, bindIcon, binding, lastBindSet = nil, nil, nil, false, nil
+	if key or opts.allowBind then
 		keyBtn = Create("TextButton", {
 			Name = "KeyBtn",
 			AnchorPoint = Vector2.new(0.5, 0.5),
@@ -858,7 +896,7 @@ function Page:AddToggle(opts)
 		end
 		return { base = COLOR.ROW, hover = COLOR.ROW_HOVER, press = COLOR.ROW_PRESS }
 	end
-	bindRowHover(btn, getState)
+	if not transparent then bindRowHover(btn, getState) end
 
 	local function trackColor()
 		if value then return Color3.fromRGB(150, 150, 150) end
@@ -900,18 +938,16 @@ function Page:AddToggle(opts)
 		end
 	end))
 
-	if key then
+	if keyBtn then
 		win:_track(UserInputService.InputBegan:Connect(function(input, processed)
 			if binding then return end
-			if input == boundInput then return end
+			if lastBindSet and os.clock() - lastBindSet < 0.2 then return end
 			if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 			if key == nil or input.KeyCode ~= key then return end
 			if processed and skipProc then return end
 			apply(not value, true)
 		end))
-	end
 
-	if keyBtn then
 		keyBtn.MouseButton1Click:Connect(function()
 			if binding then return end
 			if key ~= nil then
@@ -922,13 +958,12 @@ function Page:AddToggle(opts)
 			end
 			binding = true
 			renderBind()
-			waitForKey(win, function(newKey, sourceInput)
+			waitForKey(win, function(newKey)
 				binding = false
 				if win.destroyed then return end
 				if newKey then
 					key = newKey
-					-- el input que asigno la tecla no debe activar el toggle
-					boundInput = sourceInput
+					lastBindSet = os.clock()
 					if opts.onBind then opts.onBind(key) end
 				end
 				renderBind()
@@ -1145,7 +1180,7 @@ function Page:AddKeybind(opts)
 	local win = self.window
 	local key = toKeyCode(opts.default)
 	local binding = false
-	local boundInput = nil
+	local lastBindSet = nil
 	local skipGameProcessed = opts.skipGameProcessed
 	if skipGameProcessed == nil then skipGameProcessed = true end
 
@@ -1185,7 +1220,7 @@ function Page:AddKeybind(opts)
 
 	self.window:_track(UserInputService.InputBegan:Connect(function(input, processed)
 		if binding or win.destroyed then return end
-		if input == boundInput then return end
+		if lastBindSet and os.clock() - lastBindSet < 0.2 then return end
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
 		if key == nil or input.KeyCode ~= key then return end
 		if processed and skipGameProcessed then return end
@@ -1206,13 +1241,12 @@ function Page:AddKeybind(opts)
 		end
 		binding = true
 		refresh()
-		waitForKey(win, function(newKey, sourceInput)
+		waitForKey(win, function(newKey)
 			binding = false
 			if win.destroyed then return end
 			if newKey then
 				key = newKey
-				-- el input que asigno la tecla no debe disparar el callback
-				boundInput = sourceInput
+				lastBindSet = os.clock()
 				if opts.onBind then opts.onBind(key) end
 			end
 			refresh()
@@ -1249,7 +1283,7 @@ function Page:AddSearchBox(opts)
 	connectTextChanged(box, function()
 		version = version + 1
 		local v = version
-		task.delay(0.35, function()
+		task.delay(0.2, function()
 			if v == version and not win.destroyed then fire() end
 		end)
 	end)
@@ -1443,8 +1477,6 @@ function Page:AddList(opts)
 	}
 end
 
--- fade de apertura del dropdown: las filas de la lista entran en
--- cascada (ocultas al abrir, aparecen escalonadas y suaves)
 local function hideListRow(btn)
 	btn.BackgroundTransparency = 1
 	for _, d in ipairs(btn:GetDescendants()) do
@@ -1476,7 +1508,7 @@ function Page:AddDropdown(opts)
 	local win = self.window
 	local page = self
 	local maxHeight = tonumber(opts.maxHeight) or 240
-	local selectedId = nil
+	local selectedId = (opts.default ~= nil) and opts.default or nil
 	local items = normalizeItems(opts.items)
 	local open = false
 
@@ -1513,7 +1545,7 @@ function Page:AddDropdown(opts)
 		Name = "Panel",
 		Size = UDim2.new(1, 0, 0, 0),
 		BackgroundColor3 = COLOR.FIELD,
-		BackgroundTransparency = 0.78,
+		BackgroundTransparency = 1,
 		ClipsDescendants = true,
 		LayoutOrder = 2,
 		Parent = root,
@@ -1572,8 +1604,6 @@ function Page:AddDropdown(opts)
 		triggerLabel.Text = tostring(opts.name or "")
 	end
 
-	-- apertura/cierre animado: el panel crece con tween Quart, la
-	-- flecha rota 180° y las filas entran en cascada con fade
 	local function setOpen(nowOpen)
 		open = nowOpen
 		local target = 0
@@ -1583,6 +1613,7 @@ function Page:AddDropdown(opts)
 		end
 		local dur = open and DROP_TIME or DROP_CLOSE
 		Tween(panel, { Size = UDim2.new(1, 0, 0, target) }, dur, Enum.EasingStyle.Quart)
+		Tween(panel, { BackgroundTransparency = open and 0.78 or 1 }, dur, Enum.EasingStyle.Quart)
 		Tween(arrow, { Rotation = open and 180 or 0 }, dur, Enum.EasingStyle.Quart)
 		if open then
 			for i = 1, #rowFrames do
@@ -1633,7 +1664,6 @@ function Page:AddDropdown(opts)
 				rowFrames[#rowFrames + 1] = btn
 				rowItems[#rowItems + 1] = item
 				if open then
-					-- filas nuevas (busqueda) entran con la misma cascada
 					hideListRow(btn)
 					fadeListRow(btn, math.min(idx * DROP_STAGGER, 0.35))
 				end
@@ -1683,6 +1713,778 @@ function Page:AddDropdown(opts)
 		end,
 		Refresh = render,
 		Box = box,
+	}
+end
+
+function Page:AddVirtualList(opts)
+	opts = opts or {}
+	local win = self.window
+	local order = self:_nextOrder()
+	local rowH = tonumber(opts.rowHeight) or 34
+	local gap = 4
+	local stepY = rowH + gap
+	local listHeight = tonumber(opts.height) or 260
+
+	local root = Create("Frame", {
+		Name = "VirtualList",
+		Size = UDim2.new(1, 0, 0, listHeight + (opts.searchable ~= false and 36 or 0)),
+		BackgroundTransparency = 1,
+		LayoutOrder = order,
+		Parent = self.Scroll,
+	})
+
+	local box
+	local topOffset = 0
+	if opts.searchable ~= false then
+		local searchContainer
+		searchContainer, box = makeSearchBox(root, opts, 1)
+		searchContainer.Position = UDim2.new(0, 0, 0, 0)
+		topOffset = 36
+	end
+
+	local host = Create("Frame", {
+		Name = "RowsHost",
+		Size = UDim2.new(1, 0, 1, -topOffset),
+		Position = UDim2.new(0, 0, 0, topOffset),
+		BackgroundTransparency = 1,
+		ClipsDescendants = true,
+		Parent = root,
+	})
+
+	local sf = Create("ScrollingFrame", {
+		Name = "VirtualScroll",
+		Size = UDim2.new(1, -(SCROLL_W + SCROLL_GAP), 1, 0),
+		BackgroundTransparency = 1,
+		ScrollBarThickness = 0,
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		ClipsDescendants = true,
+		Parent = host,
+	})
+
+	local updateScroll = applyVerticalScroll(win, sf, host, 0, 0, function()
+		return sf.CanvasSize.Y.Offset
+	end, true)
+
+	local allItems = opts.items or {}
+	local filtered = {}
+	local materialized = {}
+	local activeId = opts.activeId
+	local filterFn = opts.filterFn
+
+	local function styleRow(btn, item)
+		local isPlaying = (activeId ~= nil and item.id == activeId)
+		btn.BackgroundColor3 = isPlaying and COLOR.GREEN or COLOR.ROW
+		local star = btn:FindFirstChild("FavBtn")
+		if star then
+			star.ImageColor3 = item.fav and COLOR.GOLD or COLOR.TEXT_DIM
+		end
+		local bindBtn = btn:FindFirstChild("BindBtn")
+		if bindBtn then
+			local bIcon = bindBtn:FindFirstChild("Icon")
+			local bTxt = bindBtn:FindFirstChild("Txt")
+			local clrBtn = btn:FindFirstChild("ClearBindBtn")
+			if item.bind then
+				if bIcon then bIcon.Visible = false end
+				if bTxt then bTxt.Visible = true; bTxt.Text = shortKey(toKeyCode(item.bind)) end
+				if clrBtn then clrBtn.Visible = true end
+			else
+				if bIcon then bIcon.Visible = true end
+				if bTxt then bTxt.Visible = false end
+				if clrBtn then clrBtn.Visible = false end
+			end
+		end
+	end
+
+	local function createRowAt(idx)
+		if materialized[idx] or not filtered[idx] then return end
+		local item = filtered[idx]
+
+		local btn = Create("TextButton", {
+			Name = "VRow_" .. idx,
+			Size = UDim2.new(1, -4, 0, rowH),
+			Position = UDim2.new(0, 2, 0, (idx - 1) * stepY),
+			BackgroundColor3 = (activeId == item.id) and COLOR.GREEN or COLOR.ROW,
+			BackgroundTransparency = ROW_TRANSPARENCY,
+			Text = "",
+			AutoButtonColor = false,
+			Parent = sf,
+		})
+		Round(ROW_RADIUS, btn)
+		materialized[idx] = btn
+
+		local rightX = -6
+		local function nextRightPos(w)
+			rightX = rightX - w
+			local p = rightX
+			rightX = rightX - 4
+			return p
+		end
+
+		if opts.showDelete or item.canDelete then
+			local delPos = nextRightPos(22)
+			local delBtn = Create("TextButton", {
+				Name = "DelBtn",
+				AnchorPoint = Vector2.new(0, 0.5),
+				Size = UDim2.new(0, 22, 0, 22),
+				Position = UDim2.new(1, delPos, 0.5, 0),
+				BackgroundColor3 = COLOR.DANGER,
+				BackgroundTransparency = 0.25,
+				Text = "X",
+				TextColor3 = COLOR.TEXT,
+				FontFace = FONT_BOLD,
+				TextSize = 10,
+				AutoButtonColor = false,
+				Parent = btn,
+			})
+			Round(6, delBtn)
+			delBtn.MouseButton1Click:Connect(function()
+				if opts.onDelete then opts.onDelete(item) end
+			end)
+		end
+
+		if opts.showLoad then
+			local loadPos = nextRightPos(38)
+			local loadBtn = Create("TextButton", {
+				Name = "LoadBtn",
+				AnchorPoint = Vector2.new(0, 0.5),
+				Size = UDim2.new(0, 38, 0, 22),
+				Position = UDim2.new(1, loadPos, 0.5, 0),
+				BackgroundColor3 = COLOR.GREEN,
+				BackgroundTransparency = 0.2,
+				Text = "Load",
+				TextColor3 = COLOR.TEXT,
+				FontFace = FONT_BOLD,
+				TextSize = 9,
+				AutoButtonColor = false,
+				Parent = btn,
+			})
+			Round(6, loadBtn)
+			loadBtn.MouseButton1Click:Connect(function()
+				if opts.onLoad then opts.onLoad(item) end
+			end)
+		end
+
+		if opts.showCopy then
+			local copyPos = nextRightPos(22)
+			local copyBtn = Create("ImageButton", {
+				Name = "CopyBtn",
+				AnchorPoint = Vector2.new(0, 0.5),
+				Size = UDim2.new(0, 22, 0, 22),
+				Position = UDim2.new(1, copyPos, 0.5, 0),
+				BackgroundColor3 = COLOR.FIELD,
+				BackgroundTransparency = 0.2,
+				Image = COPY_ICON,
+				ImageColor3 = COLOR.TEXT_DIM,
+				AutoButtonColor = false,
+				Parent = btn,
+			})
+			Round(6, copyBtn)
+			copyBtn.MouseButton1Click:Connect(function()
+				if opts.onCopy then opts.onCopy(item, copyBtn) end
+			end)
+		end
+
+		if opts.showBind ~= false then
+			local bindPos = nextRightPos(34)
+			local bindBtn = Create("TextButton", {
+				Name = "BindBtn",
+				AnchorPoint = Vector2.new(0, 0.5),
+				Size = UDim2.new(0, 34, 0, 22),
+				Position = UDim2.new(1, bindPos, 0.5, 0),
+				BackgroundColor3 = COLOR.FIELD,
+				BackgroundTransparency = 0.2,
+				Text = "",
+				AutoButtonColor = false,
+				Parent = btn,
+			})
+			Round(6, bindBtn)
+
+			local bIcon = Create("ImageLabel", {
+				Name = "Icon",
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Size = UDim2.new(0, 18, 0, 14),
+				Position = UDim2.new(0.5, 0, 0.5, 0),
+				BackgroundTransparency = 1,
+				Image = KEYBIND_ICON,
+				ImageRectOffset = Vector2.new(15, 68),
+				ImageRectSize = Vector2.new(390, 284),
+				ImageColor3 = COLOR.TEXT_DIM,
+				Parent = bindBtn,
+			})
+			local bTxt = Create("TextLabel", {
+				Name = "Txt",
+				Size = UDim2.new(1, 0, 1, 0),
+				BackgroundTransparency = 1,
+				Text = "",
+				TextColor3 = COLOR.BLUE,
+				FontFace = FONT_BOLD,
+				TextSize = 9,
+				Visible = false,
+				Parent = bindBtn,
+			})
+
+			local clrPos = nextRightPos(16)
+			local clrBtn = Create("TextButton", {
+				Name = "ClearBindBtn",
+				AnchorPoint = Vector2.new(0, 0.5),
+				Size = UDim2.new(0, 16, 0, 18),
+				Position = UDim2.new(1, clrPos, 0.5, 0),
+				BackgroundColor3 = COLOR.DANGER,
+				BackgroundTransparency = 0.3,
+				Text = "x",
+				TextColor3 = COLOR.TEXT,
+				FontFace = FONT_BOLD,
+				TextSize = 9,
+				Visible = false,
+				AutoButtonColor = false,
+				Parent = btn,
+			})
+			Round(4, clrBtn)
+
+			bindBtn.MouseButton1Click:Connect(function()
+				bIcon.Visible = false
+				bTxt.Visible = true
+				bTxt.Text = ".."
+				waitForKey(win, function(newKey)
+					if newKey then
+						item.bind = newKey
+						if opts.onBindChanged then opts.onBindChanged(item, newKey) end
+					end
+					styleRow(btn, item)
+				end)
+			end)
+
+			clrBtn.MouseButton1Click:Connect(function()
+				item.bind = nil
+				if opts.onBindChanged then opts.onBindChanged(item, nil) end
+				styleRow(btn, item)
+			end)
+		end
+
+		if opts.showFav ~= false then
+			local favPos = nextRightPos(22)
+			local favBtn = Create("ImageButton", {
+				Name = "FavBtn",
+				AnchorPoint = Vector2.new(0, 0.5),
+				Size = UDim2.new(0, 20, 0, 20),
+				Position = UDim2.new(1, favPos, 0.5, 0),
+				BackgroundTransparency = 1,
+				Image = STAR_ICON,
+				ImageColor3 = item.fav and COLOR.GOLD or COLOR.TEXT_DIM,
+				Parent = btn,
+			})
+			favBtn.MouseButton1Click:Connect(function()
+				item.fav = not item.fav
+				styleRow(btn, item)
+				if opts.onFavChanged then opts.onFavChanged(item, item.fav) end
+			end)
+		end
+
+		Create("TextLabel", {
+			Name = "Title",
+			Size = UDim2.new(1, rightX - 12, 1, 0),
+			Position = UDim2.new(0, 10, 0, 0),
+			BackgroundTransparency = 1,
+			Text = tostring(item.name or item.id),
+			TextColor3 = COLOR.TEXT,
+			FontFace = FONT_MED,
+			TextSize = 11,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = btn,
+		})
+
+		styleRow(btn, item)
+
+		btn.MouseButton1Click:Connect(function()
+			if opts.onSelect then opts.onSelect(item, btn) end
+		end)
+	end
+
+	local function materializeVisible()
+		if #filtered == 0 then return end
+		local scrollY = sf.CanvasPosition.Y
+		local viewH = math.max(absSize(sf).Y, listHeight)
+		local firstIdx = math.max(1, math.floor(scrollY / stepY))
+		local lastVisible = math.min(#filtered, math.ceil((scrollY + viewH) / stepY) + 20)
+
+		for i = firstIdx, lastVisible do
+			createRowAt(i)
+		end
+	end
+
+	local function rebuild()
+		for _, r in pairs(materialized) do
+			if r and r.Parent then r:Destroy() end
+		end
+		materialized = {}
+		filtered = {}
+
+		local q = box and box.Text or ""
+		for i = 1, #allItems do
+			local it = allItems[i]
+			local passTab = (not filterFn) or filterFn(it)
+			if passTab and smartSearch(it.name or it.id, q) then
+				filtered[#filtered + 1] = it
+			end
+		end
+
+		sf.CanvasSize = UDim2.new(0, 0, 0, #filtered * stepY)
+		materializeVisible()
+		updateScroll()
+	end
+
+	sf:GetPropertyChangedSignal("CanvasPosition"):Connect(materializeVisible)
+
+	if box then
+		local debounceV = 0
+		connectTextChanged(box, function()
+			debounceV = debounceV + 1
+			local myV = debounceV
+			task.delay(0.15, function()
+				if myV == debounceV and not win.destroyed then
+					sf.CanvasPosition = Vector2.new(0, 0)
+					rebuild()
+				end
+			end)
+		end)
+	end
+
+	rebuild()
+	self:_refresh()
+
+	return {
+		Frame = root,
+		Scroll = sf,
+		Box = box,
+		SetItems = function(newItems)
+			allItems = newItems or {}
+			rebuild()
+		end,
+		SetFilter = function(fn)
+			filterFn = fn
+			rebuild()
+		end,
+		SetActive = function(id)
+			activeId = id
+			for idx, btn in pairs(materialized) do
+				if filtered[idx] then styleRow(btn, filtered[idx]) end
+			end
+		end,
+		Refresh = rebuild,
+	}
+end
+
+function Page:AddInput(opts)
+	opts = opts or {}
+	local multiline = (opts.multiline == true)
+	local h = tonumber(opts.height) or (multiline and 76 or 32)
+	local rawValue = tostring(opts.default or "")
+
+	local holder = Create("Frame", {
+		Name = opts.name or "Input",
+		Size = UDim2.new(1, 0, 0, h),
+		BackgroundColor3 = COLOR.FIELD,
+		BackgroundTransparency = 0.25,
+		LayoutOrder = self:_nextOrder(),
+		Parent = self.Scroll,
+	})
+	Round(ROW_RADIUS, holder)
+
+	local box = Create("TextBox", {
+		Name = "Box",
+		Size = UDim2.new(1, -20, 1, -10),
+		Position = UDim2.new(0, 10, 0, 5),
+		BackgroundTransparency = 1,
+		Text = "",
+		PlaceholderText = opts.placeholder or "Escribe...",
+		PlaceholderColor3 = COLOR.TEXT_DIM,
+		TextColor3 = COLOR.TEXT,
+		FontFace = multiline and FONT_CODE or FONT_MED,
+		TextSize = multiline and 10 or 11,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = multiline and Enum.TextYAlignment.Top or Enum.TextYAlignment.Center,
+		MultiLine = multiline,
+		TextWrapped = multiline,
+		ClearTextOnFocus = false,
+		Parent = holder,
+	})
+	setSafeText(box, rawValue)
+
+	box.FocusLost:Connect(function(enterPressed)
+		if #box.Text <= SAFE_TEXT_LIMIT then
+			rawValue = box.Text
+		end
+		if opts.callback then opts.callback(rawValue, enterPressed) end
+	end)
+
+	self:_refresh()
+	return {
+		Frame = holder,
+		Box = box,
+		Get = function() return rawValue end,
+		Set = function(txt)
+			rawValue = tostring(txt or "")
+			setSafeText(box, rawValue)
+		end,
+	}
+end
+
+function Page:AddButtonRow(opts)
+	opts = opts or {}
+	local buttonsCfg = opts.buttons or {}
+	local h = tonumber(opts.height) or 32
+	local row = Create("Frame", {
+		Name = "ButtonRow",
+		Size = UDim2.new(1, 0, 0, h),
+		BackgroundTransparency = 1,
+		LayoutOrder = self:_nextOrder(),
+		Parent = self.Scroll,
+	})
+
+	local count = math.max(1, #buttonsCfg)
+	local gap = 6
+	local controllers = {}
+
+	for i = 1, count do
+		local cfg = buttonsCfg[i]
+		local btn = Create("TextButton", {
+			Name = cfg.name or ("Btn_" .. i),
+			Size = UDim2.new(1 / count, -math.floor((gap * (count - 1)) / count), 1, 0),
+			Position = UDim2.new((i - 1) / count, math.floor((i - 1) * (gap / count)), 0, 0),
+			BackgroundColor3 = cfg.color or COLOR.ROW,
+			BackgroundTransparency = ROW_TRANSPARENCY,
+			Text = tostring(cfg.text or cfg.name or "Button"),
+			TextColor3 = COLOR.TEXT,
+			FontFace = FONT_BOLD,
+			TextSize = tonumber(cfg.textSize) or 11,
+			AutoButtonColor = false,
+			Parent = row,
+		})
+		Round(ROW_RADIUS, btn)
+
+		btn.MouseButton1Click:Connect(function()
+			if cfg.callback then cfg.callback(controllers[i], btn) end
+		end)
+
+		controllers[i] = {
+			Button = btn,
+			SetText = function(t) btn.Text = tostring(t) end,
+			SetColor = function(c) Tween(btn, { BackgroundColor3 = c or COLOR.ROW }, FAST) end,
+		}
+	end
+
+	self:_refresh()
+	return {
+		Frame = row,
+		Buttons = controllers,
+	}
+end
+
+function Page:AddCollapsible(opts)
+	opts = opts or {}
+	local open = (opts.defaultOpen == true)
+	local win = self.window
+	local page = self
+
+	local container = Create("Frame", {
+		Name = opts.name or "Collapsible",
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = open and Enum.AutomaticSize.Y or Enum.AutomaticSize.None,
+		BackgroundColor3 = COLOR.FIELD,
+		BackgroundTransparency = open and 0.4 or 1,
+		ClipsDescendants = true,
+		Visible = open,
+		LayoutOrder = self:_nextOrder(),
+		Parent = self.Scroll,
+	})
+	Round(ROW_RADIUS, container)
+
+	Create("UIPadding", {
+		PaddingTop = UDim.new(0, 6),
+		PaddingBottom = UDim.new(0, 6),
+		PaddingLeft = UDim.new(0, 6),
+		PaddingRight = UDim.new(0, 6),
+		Parent = container,
+	})
+	local layout = Create("UIListLayout", {
+		Padding = UDim.new(0, 6),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = container,
+	})
+
+	local subPage = setmetatable({
+		window = win,
+		Scroll = container,
+		Layout = layout,
+		order = 0,
+		UpdateScroll = function()
+			if page.UpdateScroll then page.UpdateScroll() end
+		end,
+	}, Page)
+
+	function subPage:SetOpen(state)
+		open = (state == true)
+		container.Visible = open
+		container.AutomaticSize = open and Enum.AutomaticSize.Y or Enum.AutomaticSize.None
+		Tween(container, {
+			BackgroundTransparency = open and 0.4 or 1,
+			Size = open and UDim2.new(1, 0, 0, contentHeight(layout) + 12) or UDim2.new(1, 0, 0, 0),
+		}, DROP_TIME, Enum.EasingStyle.Quart)
+		page:_refresh()
+	end
+
+	function subPage:IsOpen()
+		return open
+	end
+
+	return subPage
+end
+
+function Page:AddMultiSelectAccordion(opts)
+	opts = opts or {}
+	local items = opts.items or {}
+	local selected = opts.selected or {}
+	local open = false
+	local maxH = tonumber(opts.maxHeight) or 150
+
+	local root = Create("Frame", {
+		Name = "MultiAccordion",
+		Size = UDim2.new(1, 0, 0, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		LayoutOrder = self:_nextOrder(),
+		Parent = self.Scroll,
+	})
+	Create("UIListLayout", { Padding = UDim.new(0, 4), SortOrder = Enum.SortOrder.LayoutOrder, Parent = root })
+
+	local header, _ = makeRow(root, 1, opts.name or "Select Parts", ROW_H, 40)
+	local arrow = rightLabel(header, ">", COLOR.TEXT_DIM, 20)
+
+	local panel = Create("Frame", {
+		Name = "Panel",
+		Size = UDim2.new(1, 0, 0, 0),
+		BackgroundColor3 = COLOR.FIELD,
+		BackgroundTransparency = 1,
+		ClipsDescendants = true,
+		LayoutOrder = 2,
+		Parent = root,
+	})
+	Round(ROW_RADIUS, panel)
+
+	local listScroll = Create("ScrollingFrame", {
+		Name = "List",
+		Size = UDim2.new(1, -14, 1, -8),
+		Position = UDim2.new(0, 6, 0, 4),
+		BackgroundTransparency = 1,
+		ScrollBarThickness = 0,
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		Parent = panel,
+	})
+	local listLayout = Create("UIListLayout", { Padding = UDim.new(0, 4), Parent = listScroll })
+	listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		listScroll.CanvasSize = UDim2.new(0, 0, 0, contentHeight(listLayout) + 4)
+	end)
+	local updateSubScroll = applyVerticalScroll(self.window, listScroll, panel, 4, 4, function()
+		return contentHeight(listLayout)
+	end)
+
+	local function rebuild(newList)
+		if newList then items = newList end
+		for _, c in ipairs(listScroll:GetChildren()) do
+			if c:IsA("TextButton") then c:Destroy() end
+		end
+		for i = 1, #items do
+			local partName = tostring(items[i])
+			local row, _ = makeRow(listScroll, i, partName, 28, 70)
+			local status = rightLabel(row, "", COLOR.GREEN, 60)
+
+			local function style()
+				local isHidden = (selected[partName] == true)
+				row.BackgroundColor3 = isHidden and COLOR.RED_BG or COLOR.ROW
+				status.Text = isHidden and (opts.offText or "HIDDEN") or (opts.onText or "VISIBLE")
+				status.TextColor3 = isHidden and COLOR.DANGER or COLOR.GREEN
+			end
+			style()
+
+			row.MouseButton1Click:Connect(function()
+				selected[partName] = not selected[partName]
+				if not selected[partName] then selected[partName] = nil end
+				style()
+				if opts.callback then opts.callback(partName, selected[partName] == true, selected) end
+			end)
+		end
+		updateSubScroll()
+	end
+
+	header.MouseButton1Click:Connect(function()
+		open = not open
+		arrow.Text = open and "v" or ">"
+		if open and opts.onOpen then
+			local dynamicItems = opts.onOpen()
+			if dynamicItems then rebuild(dynamicItems) end
+		end
+		Tween(panel, {
+			Size = UDim2.new(1, 0, 0, open and maxH or 0),
+			BackgroundTransparency = open and 0.45 or 1,
+		}, DROP_TIME, Enum.EasingStyle.Quart)
+		self:_refresh()
+	end)
+
+	rebuild(items)
+	self:_refresh()
+
+	return {
+		Frame = root,
+		SetItems = rebuild,
+		GetSelected = function() return selected end,
+	}
+end
+
+function Page:AddStateCard(opts)
+	opts = opts or {}
+	local rawCode = tostring(opts.defaultCode or "")
+	local card = Create("Frame", {
+		Name = "StateCard_" .. tostring(opts.name or "State"),
+		Size = UDim2.new(1, 0, 0, 152),
+		BackgroundColor3 = COLOR.FIELD,
+		BackgroundTransparency = 0.35,
+		LayoutOrder = self:_nextOrder(),
+		Parent = self.Scroll,
+	})
+	Round(ROW_RADIUS, card)
+
+	Create("TextLabel", {
+		Name = "Title",
+		Size = UDim2.new(0.4, 0, 0, 18),
+		Position = UDim2.new(0, 10, 0, 6),
+		BackgroundTransparency = 1,
+		Text = tostring(opts.name or "State"),
+		TextColor3 = COLOR.TEXT,
+		FontFace = FONT_BOLD,
+		TextSize = 12,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = card,
+	})
+
+	local selLabel = Create("TextLabel", {
+		Name = "Selected",
+		Size = UDim2.new(0.55, -10, 0, 18),
+		Position = UDim2.new(0.45, 0, 0, 6),
+		BackgroundTransparency = 1,
+		Text = "Selected: " .. tostring(opts.selectedName or "None"),
+		TextColor3 = COLOR.TEXT_DIM,
+		FontFace = FONT_MED,
+		TextSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Parent = card,
+	})
+
+	local selectBtn = Create("TextButton", {
+		Name = "SelectBtn",
+		Size = UDim2.new(1, -76, 0, 26),
+		Position = UDim2.new(0, 10, 0, 28),
+		BackgroundColor3 = COLOR.ROW,
+		BackgroundTransparency = 0.2,
+		Text = "Select animation",
+		TextColor3 = COLOR.TEXT,
+		FontFace = FONT_BOLD,
+		TextSize = 10,
+		AutoButtonColor = false,
+		Parent = card,
+	})
+	Round(6, selectBtn)
+
+	local clearBtn = Create("TextButton", {
+		Name = "ClearBtn",
+		Size = UDim2.new(0, 52, 0, 26),
+		Position = UDim2.new(1, -62, 0, 28),
+		BackgroundColor3 = COLOR.DANGER,
+		BackgroundTransparency = 0.25,
+		Text = "Clear",
+		TextColor3 = COLOR.TEXT,
+		FontFace = FONT_BOLD,
+		TextSize = 10,
+		AutoButtonColor = false,
+		Parent = card,
+	})
+	Round(6, clearBtn)
+
+	local codeBox = Create("TextBox", {
+		Name = "CodeBox",
+		Size = UDim2.new(1, -20, 0, 84),
+		Position = UDim2.new(0, 10, 0, 60),
+		BackgroundColor3 = COLOR.BG,
+		BackgroundTransparency = 0.3,
+		Text = "",
+		PlaceholderText = "Keyframe code / URL / AssetId...",
+		PlaceholderColor3 = COLOR.TEXT_DIM,
+		TextColor3 = COLOR.TEXT,
+		FontFace = FONT_CODE,
+		TextSize = 9,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		MultiLine = true,
+		TextWrapped = true,
+		ClearTextOnFocus = false,
+		Parent = card,
+	})
+	Round(6, codeBox)
+	setSafeText(codeBox, rawCode)
+
+	local copyBtn = Create("TextButton", {
+		Name = "CopyKF",
+		Size = UDim2.new(0, 56, 0, 20),
+		Position = UDim2.new(1, -66, 1, -28),
+		BackgroundColor3 = COLOR.ROW,
+		BackgroundTransparency = 0.1,
+		Text = "Copy KF",
+		TextColor3 = COLOR.TEXT_DIM,
+		FontFace = FONT_BOLD,
+		TextSize = 9,
+		AutoButtonColor = false,
+		ZIndex = 3,
+		Parent = card,
+	})
+	Round(5, copyBtn)
+
+	codeBox.FocusLost:Connect(function()
+		if #codeBox.Text <= SAFE_TEXT_LIMIT then
+			rawCode = codeBox.Text
+		end
+		if opts.onCodeChanged then opts.onCodeChanged(rawCode) end
+	end)
+
+	selectBtn.MouseButton1Click:Connect(function()
+		if opts.onSelectClick then opts.onSelectClick(selectBtn) end
+	end)
+
+	clearBtn.MouseButton1Click:Connect(function()
+		rawCode = ""
+		codeBox.Text = ""
+		selLabel.Text = "Selected: None"
+		if opts.onClear then opts.onClear() end
+	end)
+
+	copyBtn.MouseButton1Click:Connect(function()
+		if opts.onCopy then opts.onCopy(rawCode, copyBtn) end
+	end)
+
+	self:_refresh()
+	return {
+		Frame = card,
+		SelectButton = selectBtn,
+		SetSelected = function(name, code)
+			selLabel.Text = "Selected: " .. tostring(name or "None")
+			if code ~= nil then
+				rawCode = tostring(code)
+				setSafeText(codeBox, rawCode)
+			end
+		end,
+		GetCode = function() return rawCode end,
 	}
 end
 
@@ -1889,10 +2691,6 @@ function Window:_dragChanged(input)
 end
 
 function Window:_dragMove(input)
-	local screen = absSize(self.ScreenGui)
-	local curX = (self.MainFrame.Position.X.Scale * screen.X) + self.MainFrame.Position.X.Offset
-	local curY = (self.MainFrame.Position.Y.Scale * screen.Y) + self.MainFrame.Position.Y.Offset
-
 	local currentMousePos = Vector2.new(input.Position.X, input.Position.Y)
 	self._dragVelocity = Vector2.new(
 		currentMousePos.X - self._lastMousePos.X,
@@ -1937,15 +2735,12 @@ end
 
 function Window:_layoutPages()
 	local hasTabs = self._tabsShown
+	local topY = hasTabs and 40 or 10
+	local footerH = (self._footer and self._footerVisible) and (self._footerHeight + 6) or 0
 	for i = 1, #self._pages do
 		local page = self._pages[i]
-		if hasTabs then
-			page.Group.Position = UDim2.new(0, 18, 0, 40)
-			page.Group.Size = UDim2.new(1, -28, 1, -50)
-		else
-			page.Group.Position = UDim2.new(0, 18, 0, 10)
-			page.Group.Size = UDim2.new(1, -28, 1, -20)
-		end
+		page.Group.Position = UDim2.new(0, 18, 0, topY)
+		page.Group.Size = UDim2.new(1, -28, 1, -(topY + 10 + footerH))
 		if page.UpdateScroll then page.UpdateScroll() end
 	end
 end
@@ -1979,25 +2774,55 @@ end
 
 function Window:_selectTab(tab)
 	if self._selectedTab == tab then return end
+	local prevTab = self._selectedTab
+	if prevTab and prevTab.Page and prevTab.Page.Scroll then
+		prevTab._savedScroll = prevTab.Page.Scroll.CanvasPosition
+	end
+
 	self._selectedTab = tab
 	for i = 1, #self._tabs do
 		local t = self._tabs[i]
 		local active = (t == tab)
 		t.Button.TextColor3 = active and COLOR.TEXT or COLOR.TAB_IDLE
-		t.Page.Group.Visible = active
+		if t.Page ~= tab.Page then
+			t.Page.Group.Visible = false
+		end
 	end
+	tab.Page.Group.Visible = true
+
+	if self._footer then
+		local wantFooter = (tab.showFooter == true)
+		if self._footerVisible ~= wantFooter then
+			self._footerVisible = wantFooter
+			self._footer.Visible = wantFooter
+			self:_layoutPages()
+		end
+	end
+
 	self:_moveIndicator(tab.Button, true)
 	self:_autoScrollTo(tab.Button)
+
+	if tab.onSelect then
+		pcall(tab.onSelect, tab)
+	end
+
 	task.defer(function()
-		if not self.destroyed and tab.Page.UpdateScroll then tab.Page.UpdateScroll() end
+		if self.destroyed then return end
+		if tab._savedScroll and tab.Page and tab.Page.Scroll then
+			tab.Page.Scroll.CanvasPosition = tab._savedScroll
+		end
+		if tab.Page.UpdateScroll then tab.Page.UpdateScroll() end
 	end)
 end
 
-function Window:CreateTab(name)
+function Window:CreateTab(name, opts)
+	opts = opts or {}
 	name = tostring(name or ("Tab " .. (#self._tabs + 1)))
 	local page
 
-	if not self._tabsShown then
+	if opts.sharePageWith then
+		page = opts.sharePageWith.Page or opts.sharePageWith
+	elseif not self._tabsShown then
 		self._tabsShown = true
 		self.TabBar.Visible = true
 		page = self._defaultPage
@@ -2034,7 +2859,14 @@ function Window:CreateTab(name)
 		Tween(btn, { TextColor3 = COLOR.TAB_IDLE }, 0.12)
 	end)
 
-	local tab = { Name = name, Button = btn, Page = page, window = self }
+	local tab = {
+		Name = name,
+		Button = btn,
+		Page = page,
+		window = self,
+		showFooter = (opts.showFooter == true),
+		onSelect = opts.onSelect,
+	}
 	function tab:AddSection(o) return page:AddSection(o) end
 	function tab:AddLabel(o) return page:AddLabel(o) end
 	function tab:AddButton(o) return page:AddButton(o) end
@@ -2044,6 +2876,12 @@ function Window:CreateTab(name)
 	function tab:AddSearchBox(o) return page:AddSearchBox(o) end
 	function tab:AddList(o) return page:AddList(o) end
 	function tab:AddDropdown(o) return page:AddDropdown(o) end
+	function tab:AddVirtualList(o) return page:AddVirtualList(o) end
+	function tab:AddInput(o) return page:AddInput(o) end
+	function tab:AddButtonRow(o) return page:AddButtonRow(o) end
+	function tab:AddCollapsible(o) return page:AddCollapsible(o) end
+	function tab:AddMultiSelectAccordion(o) return page:AddMultiSelectAccordion(o) end
+	function tab:AddStateCard(o) return page:AddStateCard(o) end
 	function tab:Select() self.window:_selectTab(tab) end
 
 	table.insert(self._tabs, tab)
@@ -2059,6 +2897,436 @@ function Window:CreateTab(name)
 	return tab
 end
 
+function Window:AddHeaderToggle(opts)
+	opts = opts or {}
+	local value = (opts.default == true)
+	local debounceTime = tonumber(opts.debounce) or 0.5
+	local busy = false
+
+	self.Title.Size = UDim2.new(1, -145, 0, HEADER_H)
+	self.DragArea.Size = UDim2.new(1, -145, 0, HEADER_H)
+
+	local switch = Create("TextButton", {
+		Name = "HeaderSwitch",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.new(0, 44, 0, 22),
+		Position = UDim2.new(1, -104, 0, HEADER_H / 2),
+		BackgroundColor3 = value and COLOR.GREEN or Color3.fromRGB(60, 60, 60),
+		AutoButtonColor = false,
+		Text = "",
+		ZIndex = 15,
+		Parent = self.Body,
+	})
+	Round(11, switch)
+
+	Create("UIShadow", {
+		Name = "SwitchShadow",
+		BlurRadius = UDim.new(0, 6),
+		Color = Color3.fromRGB(0, 0, 0),
+		Transparency = 0.72,
+		Parent = switch,
+	})
+
+	local knob = Create("Frame", {
+		Name = "Knob",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.new(0, 22, 0, 16),
+		Position = UDim2.new(0, value and 30 or 14, 0.5, 0),
+		BackgroundColor3 = COLOR.TEXT,
+		BackgroundTransparency = 0.15,
+		BorderSizePixel = 0,
+		ZIndex = 16,
+		Parent = switch,
+	})
+	local knobCorner = Round(8, knob)
+
+	local lens = Create("UIStroke", {
+		Name = "Lens",
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		Color = COLOR.TEXT,
+		Thickness = 1.4,
+		Transparency = 1,
+		Parent = knob,
+	})
+
+	local function apply(v, fire)
+		value = (v == true)
+		Tween(switch, {
+			BackgroundColor3 = value and COLOR.GREEN or Color3.fromRGB(60, 60, 60),
+		}, FAST, Enum.EasingStyle.Quart)
+		Tween(knob, {
+			Position = UDim2.new(0, value and 30 or 14, 0.5, 0),
+		}, FAST, Enum.EasingStyle.Quart)
+		if fire and opts.callback then
+			task.spawn(opts.callback, value)
+		end
+	end
+
+	local function setLens(on)
+		Tween(knob, {
+			BackgroundTransparency = on and 0.5 or 0.15,
+			Size = on and UDim2.new(0, 26, 0, 18) or UDim2.new(0, 22, 0, 16),
+		}, FAST, Enum.EasingStyle.Quart)
+		knobCorner.CornerRadius = UDim.new(0, on and 9 or 8)
+		Tween(lens, { Transparency = on and 0.1 or 1, Thickness = on and 2 or 1.4 }, FAST, Enum.EasingStyle.Quart)
+	end
+
+	switch.MouseButton1Down:Connect(function() setLens(true) end)
+	switch.MouseButton1Up:Connect(function() setLens(false) end)
+	switch.MouseLeave:Connect(function() setLens(false) end)
+
+	switch.MouseButton1Click:Connect(function()
+		if busy then return end
+		busy = true
+		apply(not value, true)
+		task.delay(debounceTime, function() busy = false end)
+	end)
+
+	return {
+		Frame = switch,
+		Get = function() return value end,
+		Set = function(v, fire) apply(v, fire == true) end,
+	}
+end
+
+function Window:CreateSpeedFooter(opts)
+	opts = opts or {}
+	local footerH = 104
+	self._footerHeight = footerH
+	self._footerVisible = true
+
+	local footer = Create("Frame", {
+		Name = "SpeedFooter",
+		Size = UDim2.new(1, -28, 0, footerH),
+		Position = UDim2.new(0, 14, 1, -(footerH + 8)),
+		BackgroundColor3 = COLOR.FIELD,
+		BackgroundTransparency = 0.35,
+		ZIndex = 15,
+		Parent = self.ContentArea,
+	})
+	Round(12, footer)
+	self._footer = footer
+
+	local statusLabel = Create("TextLabel", {
+		Name = "StatusLabel",
+		Size = UDim2.new(1, -16, 0, 14),
+		Position = UDim2.new(0, 8, 0, 4),
+		BackgroundTransparency = 1,
+		Text = opts.statusText or "Animations: 0/0",
+		TextColor3 = COLOR.TEXT_DIM,
+		FontFace = FONT_MED,
+		TextSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = footer,
+	})
+
+	Create("TextLabel", {
+		Name = "SpeedTitle",
+		Size = UDim2.new(0, 68, 0, 18),
+		Position = UDim2.new(0, 8, 0, 20),
+		BackgroundTransparency = 1,
+		Text = "Speed",
+		TextColor3 = COLOR.TEXT,
+		FontFace = FONT_BOLD,
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = footer,
+	})
+
+	local speedValLabel = Create("TextLabel", {
+		Name = "SpeedValue",
+		Size = UDim2.new(0, 36, 0, 18),
+		Position = UDim2.new(0, 50, 0, 20),
+		BackgroundTransparency = 1,
+		Text = tostring(opts.defaultSpeed or 5),
+		TextColor3 = COLOR.GREEN,
+		FontFace = FONT_BOLD,
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = footer,
+	})
+
+	local function makeMiniBtn(name, text, posX, width)
+		local b = Create("TextButton", {
+			Name = name,
+			Size = UDim2.new(0, width, 0, 18),
+			Position = UDim2.new(1, posX, 0, 20),
+			BackgroundColor3 = COLOR.ROW,
+			BackgroundTransparency = 0.2,
+			Text = text,
+			TextColor3 = COLOR.TEXT,
+			FontFace = FONT_BOLD,
+			TextSize = 9,
+			AutoButtonColor = false,
+			Parent = footer,
+		})
+		Round(6, b)
+		return b
+	end
+
+	local resetBtn = makeMiniBtn("Reset", "Reset", -128, 42)
+	local revBtn   = makeMiniBtn("Reverse", "Reverse", -82, 48)
+	local revBind  = makeMiniBtn("RevBind", "+", -30, 22)
+
+	local track = Create("Frame", {
+		Name = "Track",
+		Size = UDim2.new(1, -20, 0, 5),
+		Position = UDim2.new(0, 10, 0, 45),
+		BackgroundColor3 = Color3.fromRGB(50, 50, 50),
+		Parent = footer,
+	})
+	Circle(track)
+
+	local fill = Create("Frame", {
+		Name = "Fill",
+		Size = UDim2.new(0, 0, 1, 0),
+		BackgroundColor3 = COLOR.GREEN,
+		Parent = track,
+	})
+	Circle(fill)
+
+	local knob = Create("Frame", {
+		Name = "Knob",
+		AnchorPoint = Vector2.new(0.5, 0.5),
+		Size = UDim2.new(0, 16, 0, 10),
+		Position = UDim2.new(0, 0, 0.5, 0),
+		BackgroundColor3 = COLOR.TEXT,
+		ZIndex = 3,
+		Parent = track,
+	})
+	Circle(knob)
+
+	local hit = Create("TextButton", {
+		Name = "Hit",
+		Size = UDim2.new(1, 0, 0, 18),
+		Position = UDim2.new(0, 0, 0, 38),
+		BackgroundTransparency = 1,
+		Text = "",
+		ZIndex = 5,
+		Parent = footer,
+	})
+
+	local slotCount = 5
+	local slotsRow = Create("Frame", {
+		Name = "SlotsRow",
+		Size = UDim2.new(1, -16, 0, 42),
+		Position = UDim2.new(0, 8, 0, 56),
+		BackgroundTransparency = 1,
+		Parent = footer,
+	})
+	Create("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal,
+		HorizontalAlignment = Enum.HorizontalAlignment.Center,
+		Padding = UDim.new(0, 6),
+		Parent = slotsRow,
+	})
+
+	local minS, maxS = tonumber(opts.min) or 0, tonumber(opts.max) or 30
+	local curSpeed = tonumber(opts.defaultSpeed) or 5
+	local isReversed = false
+	local revKey = toKeyCode(opts.reverseKey)
+	local slots = {}
+
+	local function updateAccent()
+		local col = isReversed and COLOR.DANGER or COLOR.GREEN
+		fill.BackgroundColor3 = col
+		speedValLabel.TextColor3 = col
+		revBtn.BackgroundColor3 = isReversed and COLOR.DANGER or COLOR.ROW
+	end
+
+	local function setSpeed(val, fire)
+		curSpeed = math.clamp(tonumber(val) or 5, minS, maxS)
+		local pct = math.clamp((curSpeed - minS) / (maxS - minS), 0, 1)
+		Tween(fill, { Size = UDim2.new(pct, 0, 1, 0) }, 0.08)
+		Tween(knob, { Position = UDim2.new(pct, 0, 0.5, 0) }, 0.08)
+		speedValLabel.Text = string.format("%.1f", curSpeed):gsub("%.0$", "")
+		if fire and opts.onSpeedChanged then
+			opts.onSpeedChanged(curSpeed, isReversed)
+		end
+	end
+
+	local dragging = false
+	local function updateFromInput(input)
+		local w = absSize(track).X
+		if w <= 0 then return end
+		local pct = math.clamp((input.Position.X - absPos(track).X) / w, 0, 1)
+		local stepped = math.floor((minS + pct * (maxS - minS)) * 10 + 0.5) / 10
+		setSpeed(stepped, true)
+	end
+
+	hit.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			updateFromInput(i)
+		end
+	end)
+	self:_track(UserInputService.InputChanged:Connect(function(i)
+		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+			updateFromInput(i)
+		end
+	end))
+	self:_track(UserInputService.InputEnded:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+		end
+	end))
+
+	resetBtn.MouseButton1Click:Connect(function()
+		setSpeed(opts.defaultSpeed or 5, true)
+	end)
+
+	revBtn.MouseButton1Click:Connect(function()
+		isReversed = not isReversed
+		updateAccent()
+		if opts.onReverseChanged then opts.onReverseChanged(isReversed) end
+	end)
+
+	local bindingRev = false
+	revBind.MouseButton1Click:Connect(function()
+		if bindingRev then return end
+		if revKey then
+			revKey = nil
+			revBind.Text = "+"
+			if opts.onReverseBind then opts.onReverseBind(nil) end
+			return
+		end
+		bindingRev = true
+		revBind.Text = ".."
+		waitForKey(self, function(newKey)
+			bindingRev = false
+			revKey = newKey
+			revBind.Text = revKey and shortKey(revKey) or "+"
+			if opts.onReverseBind then opts.onReverseBind(revKey) end
+		end)
+	end)
+
+	for idx = 1, slotCount do
+		local defSlot = (opts.slots and opts.slots[idx]) or {}
+		local slotCol = Create("Frame", {
+			Name = "Slot_" .. idx,
+			Size = UDim2.new(0, 38, 1, 0),
+			BackgroundTransparency = 1,
+			Parent = slotsRow,
+		})
+		local valBox = Create("TextBox", {
+			Name = "Val",
+			Size = UDim2.new(1, 0, 0, 18),
+			BackgroundColor3 = COLOR.ROW,
+			BackgroundTransparency = 0.2,
+			Text = tostring(defSlot.value or (idx * 2)),
+			TextColor3 = COLOR.TEXT,
+			FontFace = FONT_BOLD,
+			TextSize = 10,
+			ClearTextOnFocus = false,
+			Parent = slotCol,
+		})
+		Round(5, valBox)
+
+		local bindBtn = Create("TextButton", {
+			Name = "Bind",
+			Size = UDim2.new(1, 0, 0, 20),
+			Position = UDim2.new(0, 0, 0, 21),
+			BackgroundColor3 = COLOR.ROW,
+			BackgroundTransparency = 0.2,
+			Text = defSlot.key and shortKey(toKeyCode(defSlot.key)) or "",
+			TextColor3 = COLOR.TEXT_DIM,
+			FontFace = FONT_BOLD,
+			TextSize = 9,
+			AutoButtonColor = false,
+			Parent = slotCol,
+		})
+		Round(5, bindBtn)
+
+		local icon = Create("ImageLabel", {
+			Name = "Icon",
+			AnchorPoint = Vector2.new(0.5, 0.5),
+			Size = UDim2.new(0, 16, 0, 12),
+			Position = UDim2.new(0.5, 0, 0.5, 0),
+			BackgroundTransparency = 1,
+			Image = KEYBIND_ICON,
+			ImageRectOffset = Vector2.new(15, 68),
+			ImageRectSize = Vector2.new(390, 284),
+			ImageColor3 = COLOR.TEXT_DIM,
+			Visible = (defSlot.key == nil),
+			Parent = bindBtn,
+		})
+
+		local slotState = {
+			value = tonumber(defSlot.value) or (idx * 2),
+			key = toKeyCode(defSlot.key),
+			binding = false,
+		}
+		slots[idx] = slotState
+
+		valBox.FocusLost:Connect(function()
+			local n = tonumber(valBox.Text)
+			if n then
+				slotState.value = math.clamp(n, minS, maxS)
+				valBox.Text = tostring(slotState.value)
+				if opts.onSlotChanged then opts.onSlotChanged(idx, slotState.value, slotState.key) end
+			else
+				valBox.Text = tostring(slotState.value)
+			end
+		end)
+
+		bindBtn.MouseButton1Click:Connect(function()
+			if slotState.binding then return end
+			if slotState.key then
+				slotState.key = nil
+				bindBtn.Text = ""
+				icon.Visible = true
+				if opts.onSlotChanged then opts.onSlotChanged(idx, slotState.value, nil) end
+				return
+			end
+			slotState.binding = true
+			icon.Visible = false
+			bindBtn.Text = ".."
+			waitForKey(self, function(newKey)
+				slotState.binding = false
+				slotState.key = newKey
+				bindBtn.Text = newKey and shortKey(newKey) or ""
+				icon.Visible = (newKey == nil)
+				if opts.onSlotChanged then opts.onSlotChanged(idx, slotState.value, newKey) end
+			end)
+		end)
+	end
+
+	self:_track(UserInputService.InputBegan:Connect(function(input, processed)
+		if processed or self.destroyed or input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+		if revKey and not bindingRev and input.KeyCode == revKey then
+			isReversed = not isReversed
+			updateAccent()
+			if opts.onReverseChanged then opts.onReverseChanged(isReversed) end
+		end
+		for idx = 1, slotCount do
+			local st = slots[idx]
+			if st.key and not st.binding and input.KeyCode == st.key then
+				setSpeed(st.value, true)
+			end
+		end
+	end))
+
+	setSpeed(curSpeed, false)
+	updateAccent()
+	self:_layoutPages()
+
+	return {
+		Frame = footer,
+		SetStatus = function(text, col)
+			statusLabel.Text = tostring(text)
+			statusLabel.TextColor3 = col or COLOR.TEXT_DIM
+		end,
+		SetSpeed = function(v, fire) setSpeed(v, fire == true) end,
+		GetSpeed = function() return curSpeed end,
+		SetReversed = function(r, fire)
+			isReversed = (r == true)
+			updateAccent()
+			if fire and opts.onReverseChanged then opts.onReverseChanged(isReversed) end
+		end,
+		IsReversed = function() return isReversed end,
+	}
+end
+
 function Window:AddSection(o) return self._defaultPage:AddSection(o) end
 function Window:AddLabel(o) return self._defaultPage:AddLabel(o) end
 function Window:AddButton(o) return self._defaultPage:AddButton(o) end
@@ -2068,6 +3336,12 @@ function Window:AddKeybind(o) return self._defaultPage:AddKeybind(o) end
 function Window:AddSearchBox(o) return self._defaultPage:AddSearchBox(o) end
 function Window:AddList(o) return self._defaultPage:AddList(o) end
 function Window:AddDropdown(o) return self._defaultPage:AddDropdown(o) end
+function Window:AddVirtualList(o) return self._defaultPage:AddVirtualList(o) end
+function Window:AddInput(o) return self._defaultPage:AddInput(o) end
+function Window:AddButtonRow(o) return self._defaultPage:AddButtonRow(o) end
+function Window:AddCollapsible(o) return self._defaultPage:AddCollapsible(o) end
+function Window:AddMultiSelectAccordion(o) return self._defaultPage:AddMultiSelectAccordion(o) end
+function Window:AddStateCard(o) return self._defaultPage:AddStateCard(o) end
 
 local function GetSafeParent()
 	local ok, parent = pcall(function()
@@ -2457,7 +3731,7 @@ function FlowLib:CreateWindow(opts)
 		Parent = TabContainer,
 	})
 	TabListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-		TabContainer.CanvasSize = UDim2.new(0, contentHeight(TabListLayout) + 4, 0, 0)
+		TabContainer.CanvasSize = UDim2.new(0, contentWidth(TabListLayout) + 8, 0, 0)
 	end)
 
 	applyTabScroll(win, TabContainer, TabBar)
