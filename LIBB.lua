@@ -90,6 +90,17 @@ local COLOR = {
 }
 FlowLib.Colors = COLOR
 
+-- Copia texto al portapapeles del sistema. Los executors exponen
+-- setclipboard (o toclipboard); si ninguno existe devuelve false sin
+-- romper el script. Compatible Lua 5.1/5.4.
+function FlowLib.CopyToClipboard(text)
+	local fn = setclipboard
+	if type(fn) ~= "function" then fn = toclipboard end
+	if type(fn) ~= "function" then return false end
+	local ok = pcall(fn, tostring(text == nil and "" or text))
+	return ok and true or false
+end
+
 local CORNER_RADIUS       = 24
 local ROW_RADIUS          = 8
 local ROW_H               = 36
@@ -105,6 +116,12 @@ local DROP_ROW_FADE       = 0.22
 local DROP_STAGGER        = 0.035
 local HEADER_H            = 38
 local SAFE_TEXT_LIMIT     = 90000
+-- dropdown flotante global (hermano de la ventana, por encima de todo)
+local DROP_BACK_Z         = 1999
+local DROP_Z              = 2000
+local DROP_W              = 230
+local DROP_H              = 240
+local DROP_BATCH          = 20
 
 local SHADOW_TRANSPARENCY = 0.55
 local BAR_TRANSPARENCY    = 0.6
@@ -748,14 +765,18 @@ function Page:AddButton(opts)
 	return ctrl
 end
 
-local function waitForKey(win, onKey)
+local function waitForKey(win, onKey, promptText)
 	local finished = false
 	local conn
 	local function finish(newKey, sourceInput)
 		if finished then return end
 		finished = true
 		if conn then pcall(function() conn:Disconnect() end) end
+		if win._setKeyPrompt then win:_setKeyPrompt(nil) end
 		onKey(newKey, sourceInput)
+	end
+	if win._setKeyPrompt then
+		win:_setKeyPrompt(promptText or "Press a key...")
 	end
 	conn = UserInputService.InputBegan:Connect(function(input)
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
@@ -1507,7 +1528,7 @@ function Page:AddDropdown(opts)
 	opts = opts or {}
 	local win = self.window
 	local page = self
-	local maxHeight = tonumber(opts.maxHeight) or 240
+	local maxHeight = tonumber(opts.maxHeight) or DROP_H
 	local selectedId = (opts.default ~= nil) and opts.default or nil
 	local items = normalizeItems(opts.items)
 	local open = false
@@ -1526,6 +1547,7 @@ function Page:AddDropdown(opts)
 		Parent = root,
 	})
 
+	-- solo el disparador vive en la pagina; el panel es un overlay global
 	local trigger, triggerLabel = makeRow(root, 1, opts.name, ROW_H, 74)
 	trigger.LayoutOrder = 1
 	local valueLabel = rightLabel(trigger, "", COLOR.TEXT_DIM, 58)
@@ -1541,59 +1563,9 @@ function Page:AddDropdown(opts)
 		Parent = trigger,
 	})
 
-	local panel = Create("Frame", {
-		Name = "Panel",
-		Size = UDim2.new(1, 0, 0, 0),
-		BackgroundColor3 = COLOR.FIELD,
-		BackgroundTransparency = 1,
-		ClipsDescendants = true,
-		LayoutOrder = 2,
-		Parent = root,
-	})
-	Round(ROW_RADIUS, panel)
+	win:_ensureDropdown()
 
-	local _, box = makeSearchBox(panel, opts, 1)
-	box.Position = UDim2.new(0, 12, 0, 6)
-	box.Size = UDim2.new(1, -24, 0, 20)
-
-	local listScroll = Create("ScrollingFrame", {
-		Name = "ListScroll",
-		Size = UDim2.new(1, -16, 1, -40),
-		Position = UDim2.new(0, 10, 0, 34),
-		BackgroundTransparency = 1,
-		ScrollBarThickness = 0,
-		BorderSizePixel = 0,
-		CanvasSize = UDim2.new(0, 0, 0, 0),
-		CanvasPosition = Vector2.new(0, 0),
-		ClipsDescendants = true,
-		ZIndex = 2,
-		Parent = panel,
-	})
-	local rowsLayout = Create("UIListLayout", {
-		Padding = UDim.new(0, 4),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-		Parent = listScroll,
-	})
-	rowsLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-		listScroll.CanvasSize = UDim2.new(0, 0, 0, contentHeight(rowsLayout) + 8)
-	end)
-	local updateRowsScroll = applyVerticalScroll(win, listScroll, panel, 34, 6, function()
-		return contentHeight(rowsLayout)
-	end)
-
-	local token = 0
-	local rowFrames = {}
-	local rowItems = {}
-
-	local function markSelected()
-		for i = 1, #rowFrames do
-			local f = rowFrames[i]
-			if f and f.Parent then
-				local it = rowItems[i]
-				f.BackgroundColor3 = (it and it.id == selectedId) and COLOR.ROW_SEL or COLOR.ROW
-			end
-		end
-	end
+	local owner
 
 	local function refreshValue()
 		local found = nil
@@ -1604,88 +1576,52 @@ function Page:AddDropdown(opts)
 		triggerLabel.Text = tostring(opts.name or "")
 	end
 
+	local function markSelected()
+		if win._dropOwner ~= owner then return end
+		local rows = win._dropRows or {}
+		for i = 1, #rows do
+			local e = rows[i]
+			if e.btn and e.btn.Parent then
+				e.btn.BackgroundColor3 = (e.item.id == selectedId) and COLOR.ROW_SEL or COLOR.ROW
+			end
+		end
+	end
+
 	local function setOpen(nowOpen)
-		open = nowOpen
-		local target = 0
-		if open then
-			local rows = math.min(#items, 5)
-			target = math.clamp(40 + rows * 40 + 6, 0, maxHeight)
-		end
-		local dur = open and DROP_TIME or DROP_CLOSE
-		Tween(panel, { Size = UDim2.new(1, 0, 0, target) }, dur, Enum.EasingStyle.Quart)
-		Tween(panel, { BackgroundTransparency = open and 0.78 or 1 }, dur, Enum.EasingStyle.Quart)
-		Tween(arrow, { Rotation = open and 180 or 0 }, dur, Enum.EasingStyle.Quart)
-		if open then
-			for i = 1, #rowFrames do
-				local btn = rowFrames[i]
-				if btn and btn.Parent then
-					hideListRow(btn)
-					fadeListRow(btn, math.min(i * DROP_STAGGER, 0.35))
-				end
+		if nowOpen == open then return end
+		if nowOpen then
+			if not win:_openDropdown(owner) then return end
+			open = true
+			Tween(arrow, { Rotation = 180 }, DROP_TIME, Enum.EasingStyle.Quart)
+		else
+			open = false
+			Tween(arrow, { Rotation = 0 }, DROP_CLOSE, Enum.EasingStyle.Quart)
+			if win._dropOwner == owner then
+				win:_closeDropdown()
 			end
-			task.defer(updateRowsScroll)
 		end
 	end
 
-	local function choose(item)
-		selectedId = item.id
-		refreshValue()
-		markSelected()
-		if opts.callback then opts.callback(item) end
-		setOpen(false)
-	end
-
-	local function render()
-		token = token + 1
-		local myToken = token
-		for _, c in ipairs(listScroll:GetChildren()) do
-			if c:IsA("TextButton") then c:Destroy() end
-		end
-		rowFrames = {}
-		rowItems = {}
-
-		local query = box.Text
-		local visible = {}
-		for i = 1, #items do
-			if itemMatches(items[i], query) then
-				visible[#visible + 1] = items[i]
+	owner = {
+		height = maxHeight,
+		trigger = trigger,
+		page = page,
+		opts = opts,
+		getItems = function() return items end,
+		getSelected = function() return selectedId end,
+		onChoose = function(item)
+			selectedId = item.id
+			refreshValue()
+			if opts.callback then opts.callback(item) end
+			setOpen(false)
+		end,
+		onClose = function()
+			if open then
+				open = false
+				Tween(arrow, { Rotation = 0 }, DROP_CLOSE, Enum.EasingStyle.Quart)
 			end
-		end
-
-		local idx = 1
-		local BATCH = 25
-		local function buildChunk()
-			if myToken ~= token or win.destroyed then return end
-			local n = 0
-			while idx <= #visible and n < BATCH do
-				local item = visible[idx]
-				local btn = buildListRow(listScroll, item, opts, idx,
-					item.id == selectedId, choose)
-				rowFrames[#rowFrames + 1] = btn
-				rowItems[#rowItems + 1] = item
-				if open then
-					hideListRow(btn)
-					fadeListRow(btn, math.min(idx * DROP_STAGGER, 0.35))
-				end
-				idx = idx + 1
-				n = n + 1
-			end
-			updateRowsScroll()
-			if idx <= #visible then
-				task.defer(buildChunk)
-			end
-		end
-		buildChunk()
-		if not win.destroyed then page:_refresh() end
-	end
-
-	connectTextChanged(box, function()
-		token = token + 1
-		local v = token
-		task.delay(0.35, function()
-			if v == token and not win.destroyed then render() end
-		end)
-	end)
+		end,
+	}
 
 	trigger.MouseButton1Click:Connect(function()
 		setOpen(not open)
@@ -1696,7 +1632,6 @@ function Page:AddDropdown(opts)
 	end)
 
 	refreshValue()
-	render()
 	self:_refresh()
 
 	return {
@@ -1709,10 +1644,12 @@ function Page:AddDropdown(opts)
 		end,
 		SetItems = function(list)
 			items = normalizeItems(list)
-			render()
+			if win._dropOwner == owner then win:_dropdownRender() end
 		end,
-		Refresh = render,
-		Box = box,
+		Refresh = function()
+			if win._dropOwner == owner then win:_dropdownRender() end
+		end,
+		Box = win._dropBox,
 	}
 end
 
@@ -1724,10 +1661,11 @@ function Page:AddVirtualList(opts)
 	local gap = 4
 	local stepY = rowH + gap
 	local listHeight = tonumber(opts.height) or 260
+	local countH = (opts.showCount ~= false) and 14 or 0
 
 	local root = Create("Frame", {
 		Name = "VirtualList",
-		Size = UDim2.new(1, 0, 0, listHeight + (opts.searchable ~= false and 36 or 0)),
+		Size = UDim2.new(1, 0, 0, listHeight + (opts.searchable ~= false and 36 or 0) + countH),
 		BackgroundTransparency = 1,
 		LayoutOrder = order,
 		Parent = self.Scroll,
@@ -1744,12 +1682,29 @@ function Page:AddVirtualList(opts)
 
 	local host = Create("Frame", {
 		Name = "RowsHost",
-		Size = UDim2.new(1, 0, 1, -topOffset),
+		Size = UDim2.new(1, 0, 1, -(topOffset + countH)),
 		Position = UDim2.new(0, 0, 0, topOffset),
 		BackgroundTransparency = 1,
 		ClipsDescendants = true,
 		Parent = root,
 	})
+
+	local countLabel
+	if countH > 0 then
+		countLabel = Create("TextLabel", {
+			Name = "Count",
+			Size = UDim2.new(1, -4, 0, countH),
+			Position = UDim2.new(0, 0, 1, -countH),
+			BackgroundTransparency = 1,
+			Text = "",
+			TextColor3 = COLOR.TEXT_DIM,
+			FontFace = FONT_MED,
+			TextSize = 10,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			ZIndex = 3,
+			Parent = root,
+		})
+	end
 
 	local sf = Create("ScrollingFrame", {
 		Name = "VirtualScroll",
@@ -1771,6 +1726,14 @@ function Page:AddVirtualList(opts)
 	local materialized = {}
 	local activeId = opts.activeId
 	local filterFn = opts.filterFn
+	local loadedCount = 0
+
+	-- contador "cargadas/total | restantes" (patron de RR.updateCounts)
+	local function updateCount()
+		if not countLabel or win.destroyed then return end
+		countLabel.Text = string.format("%d/%d | %d remaining",
+			loadedCount, #filtered, #filtered - loadedCount)
+	end
 
 	local function styleRow(btn, item)
 		local isPlaying = (activeId ~= nil and item.id == activeId)
@@ -1812,6 +1775,8 @@ function Page:AddVirtualList(opts)
 		})
 		Round(ROW_RADIUS, btn)
 		materialized[idx] = btn
+		loadedCount = loadedCount + 1
+		updateCount()
 
 		local rightX = -6
 		local function nextRightPos(w)
@@ -2003,7 +1968,7 @@ function Page:AddVirtualList(opts)
 	end
 
 	local function materializeVisible()
-		if #filtered == 0 then return end
+		if win.destroyed or #filtered == 0 then return end
 		local scrollY = sf.CanvasPosition.Y
 		local viewH = math.max(absSize(sf).Y, listHeight)
 		local firstIdx = math.max(1, math.floor(scrollY / stepY))
@@ -2019,6 +1984,7 @@ function Page:AddVirtualList(opts)
 			if r and r.Parent then r:Destroy() end
 		end
 		materialized = {}
+		loadedCount = 0
 		filtered = {}
 
 		local q = box and box.Text or ""
@@ -2032,10 +1998,14 @@ function Page:AddVirtualList(opts)
 
 		sf.CanvasSize = UDim2.new(0, 0, 0, #filtered * stepY)
 		materializeVisible()
+		updateCount()
 		updateScroll()
 	end
 
 	sf:GetPropertyChangedSignal("CanvasPosition"):Connect(materializeVisible)
+	-- fix (RR): re-materializar filas al cambiar el tamano del scroll
+	-- (resize o minimizar la ventana), no solo al hacer scroll
+	sf:GetPropertyChangedSignal("AbsoluteSize"):Connect(materializeVisible)
 
 	if box then
 		local debounceV = 0
@@ -2164,15 +2134,67 @@ function Page:AddButtonRow(opts)
 		})
 		Round(ROW_RADIUS, btn)
 
+		local defaultText = btn.Text
+		local defaultColor = cfg.color or COLOR.ROW
+		local busy = false
+		local token = 0
+
+		local ctrl
+
+		local function applyDefault()
+			btn.Text = defaultText
+			Tween(btn, { BackgroundColor3 = defaultColor }, FAST)
+			busy = false
+		end
+
+		-- estado temporal con guard busy y token anti-revert: un setStatus
+		-- posterior invalida el revert programado antes (patron de RR)
+		local function setStatus(text, color, seconds)
+			token = token + 1
+			local myToken = token
+			btn.Text = tostring(text)
+			Tween(btn, { BackgroundColor3 = color or defaultColor }, FAST)
+			busy = true
+			local secs = tonumber(seconds) or 3
+			if secs > 0 then
+				task.delay(secs, function()
+					if myToken ~= token or not btn.Parent then return end
+					applyDefault()
+				end)
+			end
+		end
+
 		btn.MouseButton1Click:Connect(function()
-			if cfg.callback then cfg.callback(controllers[i], btn) end
+			if busy then return end
+			if not cfg.callback then return end
+			local ok, rText, rColor, rSec = pcall(cfg.callback, ctrl, btn)
+			if not ok then
+				setStatus("Error", COLOR.DANGER, 3)
+				return
+			end
+			if rText ~= nil then
+				setStatus(rText, rColor, rSec)
+			end
 		end)
 
-		controllers[i] = {
+		ctrl = {
 			Button = btn,
-			SetText = function(t) btn.Text = tostring(t) end,
-			SetColor = function(c) Tween(btn, { BackgroundColor3 = c or COLOR.ROW }, FAST) end,
+			SetText = function(t)
+				defaultText = tostring(t)
+				btn.Text = defaultText
+			end,
+			SetColor = function(c)
+				defaultColor = c or COLOR.ROW
+				Tween(btn, { BackgroundColor3 = defaultColor }, FAST)
+			end,
+			setStatus = setStatus,
+			Reset = function()
+				token = token + 1
+				applyDefault()
+			end,
+			IsBusy = function() return busy end,
 		}
+		controllers[i] = ctrl
 	end
 
 	self:_refresh()
@@ -2553,9 +2575,33 @@ function Window:_registerFade(obj, prop, on, off)
 	table.insert(self._fadeList, { obj = obj, prop = prop, on = on, off = off })
 end
 
+-- Chip "Press a key..." mientras waitForKey espera una tecla. Se muestra
+-- instantaneamente y se oculta con tween; el texto se borra al terminar
+-- para que ningun escaneo de textos invisibles lo vea.
+function Window:_setKeyPrompt(text)
+	local p = self.KeyPrompt
+	if not p then return end
+	if text then
+		self._keyPromptShown = true
+		p.Text = tostring(text)
+		p.TextTransparency = 0
+		p.BackgroundTransparency = 0.25
+	else
+		if not self._keyPromptShown and p.Text == "" then return end
+		self._keyPromptShown = false
+		Tween(p, { TextTransparency = 1, BackgroundTransparency = 1 }, FAST, Enum.EasingStyle.Quart)
+		task.delay(FAST + 0.05, function()
+			if not self._keyPromptShown and p.Parent and p.TextTransparency >= 0.99 then
+				p.Text = ""
+			end
+		end)
+	end
+end
+
 function Window:SetVisible(show)
 	if self.destroyed or self.visible == show then return end
 	self.visible = show
+	if not show then self:_closeDropdown(true) end
 	self._fadeVersion = (self._fadeVersion or 0) + 1
 	local version = self._fadeVersion
 
@@ -2592,6 +2638,7 @@ end
 
 function Window:ToggleMinimize()
 	if self.destroyed or not self.visible then return end
+	self:_closeDropdown()
 	if self._dragTween then
 		pcall(function() self._dragTween:Cancel() end)
 		self._dragTween = nil
@@ -2629,6 +2676,7 @@ function Window:Destroy()
 	if self.destroyed then return end
 
 	if self.onClose then pcall(self.onClose) end
+	self:_closeDropdown(true)
 	if self._dragTween then pcall(function() self._dragTween:Cancel() end) end
 	self:_disconnectAll()
 	self:SetVisible(false)
@@ -2665,6 +2713,7 @@ function Window:_dragBegan(input)
 	if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
 		return
 	end
+	self:_closeDropdown(true)
 	if self._dragTween then
 		pcall(function() self._dragTween:Cancel() end)
 		self._dragTween = nil
@@ -2772,7 +2821,264 @@ function Window:_autoScrollTo(btn)
 	Tween(self.TabContainer, { CanvasPosition = Vector2.new(target, 0) }, 0.25, Enum.EasingStyle.Quart)
 end
 
+-- ===== dropdown flotante global (overlay en el ScreenGui) =============
+-- El panel no vive dentro de la pagina: es un hermano de la ventana con
+-- ZIndex alto, asi que no se recorta ni empuja el contenido. Se crea una
+-- sola vez por ventana y lo reutiliza cualquier AddDropdown.
+
+function Window:_ensureDropdown()
+	if self._dropPanel then return self._dropPanel end
+
+	local backdrop = Create("TextButton", {
+		Name = "DropdownBackdrop",
+		Size = UDim2.new(1, 0, 1, 0),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
+		ZIndex = DROP_BACK_Z,
+		Visible = false,
+		Parent = self.ScreenGui,
+	})
+
+	local panel = Create("Frame", {
+		Name = "GlobalDropdown",
+		Size = UDim2.new(0, DROP_W, 0, 0),
+		BackgroundColor3 = COLOR.FIELD,
+		BackgroundTransparency = 0.78,
+		ClipsDescendants = true,
+		Visible = false,
+		ZIndex = DROP_Z,
+		Parent = self.ScreenGui,
+	})
+	Round(ROW_RADIUS, panel)
+
+	local searchContainer, box = makeSearchBox(panel, nil, 1)
+	searchContainer.Position = UDim2.new(0, 0, 0, 0)
+	box.Position = UDim2.new(0, 12, 0, 6)
+	box.Size = UDim2.new(1, -24, 0, 20)
+
+	local listScroll = Create("ScrollingFrame", {
+		Name = "ListScroll",
+		Size = UDim2.new(1, -16, 1, -40),
+		Position = UDim2.new(0, 10, 0, 34),
+		BackgroundTransparency = 1,
+		ScrollBarThickness = 0,
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		CanvasPosition = Vector2.new(0, 0),
+		ClipsDescendants = true,
+		ZIndex = 2,
+		Parent = panel,
+	})
+	local rowsLayout = Create("UIListLayout", {
+		Padding = UDim.new(0, 4),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = listScroll,
+	})
+	rowsLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		if self.destroyed then return end
+		listScroll.CanvasSize = UDim2.new(0, 0, 0, contentHeight(rowsLayout) + 8)
+	end)
+	local updateRowsScroll = applyVerticalScroll(self, listScroll, panel, 34, 6, function()
+		return contentHeight(rowsLayout)
+	end)
+
+	self._dropBackdrop = backdrop
+	self._dropPanel = panel
+	self._dropBox = box
+	self._dropListScroll = listScroll
+	self._dropLayout = rowsLayout
+	self._dropUpdateScroll = updateRowsScroll
+	self._dropRows = {}
+	self._dropOwner = nil
+	self._dropConns = {}
+	self._dropIgnoreText = false
+
+	self:_track(backdrop.MouseButton1Click:Connect(function()
+		self:_closeDropdown()
+	end))
+
+	connectTextChanged(box, function()
+		if self._dropIgnoreText or self.destroyed or not self._dropOwner then return end
+		local v = (self._dropTextV or 0) + 1
+		self._dropTextV = v
+		task.delay(0.15, function()
+			if v == self._dropTextV and self._dropOwner and not self.destroyed then
+				self:_dropdownRender()
+			end
+		end)
+	end)
+
+	return panel
+end
+
+-- ancla el panel bajo el disparador (vuelve arriba si no cabe abajo)
+function Window:_placeDropdown()
+	local owner = self._dropOwner
+	local panel = self._dropPanel
+	if not owner or not panel then return end
+	if not owner.trigger or not owner.trigger.Parent then return end
+	local tPos = absPos(owner.trigger)
+	local tSize = absSize(owner.trigger)
+	local screen = absSize(self.ScreenGui)
+	local x = math.floor(tPos.X)
+	local y = math.floor(tPos.Y + tSize.Y + 4)
+	local h = tonumber(owner.height) or DROP_H
+	if x + DROP_W > screen.X - 6 then x = screen.X - DROP_W - 6 end
+	if x < 6 then x = 6 end
+	if y + h > screen.Y - 6 then
+		y = math.floor(tPos.Y - h - 4)
+		if y < 6 then y = 6 end
+	end
+	panel.Position = UDim2.new(0, x, 0, y)
+end
+
+-- reapunta el reposicionado al scroll de la pagina y al resize de la ventana
+function Window:_hookDropdownReposition(owner)
+	if self._dropConns then
+		for _, c in ipairs(self._dropConns) do pcall(function() c:Disconnect() end) end
+	end
+	self._dropConns = {}
+	local function hook(obj, prop)
+		if not obj then return end
+		table.insert(self._dropConns, obj:GetPropertyChangedSignal(prop):Connect(function()
+			if self._dropOwner == owner and not self.destroyed then
+				self:_placeDropdown()
+			end
+		end))
+	end
+	local scroll = owner.page and owner.page.Scroll
+	hook(scroll, "CanvasPosition")
+	hook(scroll, "AbsoluteSize")
+	hook(self.MainFrame, "AbsoluteSize")
+end
+
+-- limpia la busqueda y reconstruye las filas del overlay
+function Window:_dropdownRefill()
+	if self._dropBox then
+		self._dropIgnoreText = true
+		if self._dropBox.Text ~= "" then self._dropBox.Text = "" end
+		self._dropIgnoreText = false
+	end
+	self:_dropdownRender()
+end
+
+function Window:_dropdownRender()
+	local owner = self._dropOwner
+	local listScroll = self._dropListScroll
+	if not owner or not listScroll or self.destroyed then return end
+
+	for _, c in ipairs(listScroll:GetChildren()) do
+		if c:IsA("TextButton") then c:Destroy() end
+	end
+	self._dropRows = {}
+
+	local items = owner.getItems and owner.getItems() or {}
+	local query = (self._dropBox and self._dropBox.Text) or ""
+	local visible = {}
+	for i = 1, #items do
+		if itemMatches(items[i], query) then
+			visible[#visible + 1] = items[i]
+		end
+	end
+	local selectedId = owner.getSelected and owner.getSelected() or nil
+
+	local idx = 1
+	local function buildChunk()
+		if self._dropOwner ~= owner or self.destroyed then return end
+		local n = 0
+		while idx <= #visible and n < DROP_BATCH do
+			local item = visible[idx]
+			local btn = buildListRow(listScroll, item, owner.opts, idx,
+				item.id == selectedId, function(chosen)
+					owner.onChoose(chosen)
+				end)
+			self._dropRows[#self._dropRows + 1] = { btn = btn, item = item }
+			hideListRow(btn)
+			fadeListRow(btn, math.min(idx * DROP_STAGGER, 0.35))
+			idx = idx + 1
+			n = n + 1
+		end
+		listScroll.CanvasSize = UDim2.new(0, 0, 0, contentHeight(self._dropLayout) + 8)
+		if self._dropUpdateScroll then self._dropUpdateScroll() end
+		if idx <= #visible then
+			task.defer(buildChunk)
+		end
+	end
+	buildChunk()
+end
+
+function Window:_openDropdown(owner)
+	if self.destroyed or not self.visible or self.minimized then return false end
+	if self._dropOwner and self._dropOwner ~= owner then
+		self:_closeDropdown(true)
+	end
+	local panel = self:_ensureDropdown()
+	self._dropOwner = owner
+	if owner.opts and owner.opts.placeholder then
+		self._dropBox.PlaceholderText = tostring(owner.opts.placeholder)
+	end
+	self._dropBackdrop.Visible = true
+	panel.Visible = true
+	self:_placeDropdown()
+	self:_hookDropdownReposition(owner)
+	self:_dropdownRefill()
+	Tween(panel, { Size = UDim2.new(0, DROP_W, 0, owner.height or DROP_H) },
+		DROP_TIME, Enum.EasingStyle.Quart)
+	return true
+end
+
+function Window:_closeDropdown(instant)
+	local owner = self._dropOwner
+	if not owner then return end
+	self._dropOwner = nil
+
+	if self._dropConns then
+		for _, c in ipairs(self._dropConns) do pcall(function() c:Disconnect() end) end
+		self._dropConns = {}
+	end
+
+	if self._dropBox and self._dropBox.Text ~= "" then
+		self._dropIgnoreText = true
+		self._dropBox.Text = ""
+		self._dropIgnoreText = false
+	end
+
+	if self._dropBackdrop then self._dropBackdrop.Visible = false end
+
+	if owner.onClose then owner.onClose() end
+
+	local panel = self._dropPanel
+	local function destroyRows()
+		local ls = self._dropListScroll
+		if ls then
+			for _, c in ipairs(ls:GetChildren()) do
+				if c:IsA("TextButton") then c:Destroy() end
+			end
+		end
+		self._dropRows = {}
+	end
+
+	if instant or self.destroyed or not panel then
+		destroyRows()
+		if panel then
+			panel.Size = UDim2.new(0, DROP_W, 0, 0)
+			panel.Visible = false
+		end
+		return
+	end
+
+	Tween(panel, { Size = UDim2.new(0, DROP_W, 0, 0) }, DROP_CLOSE, Enum.EasingStyle.Quart)
+	task.delay(DROP_CLOSE + 0.05, function()
+		if self._dropOwner or self.destroyed then return end
+		destroyRows()
+		panel.Visible = false
+	end)
+end
+
 function Window:_selectTab(tab)
+	self:_closeDropdown()
 	if self._selectedTab == tab then return end
 	local prevTab = self._selectedTab
 	if prevTab and prevTab.Page and prevTab.Page.Scroll then
@@ -3498,6 +3804,27 @@ function FlowLib:CreateWindow(opts)
 	})
 	Round(CORNER_RADIUS, Body)
 	win.Body = Body
+
+	-- chip "Press a key..." mientras waitForKey espera una tecla
+	-- (RR.BindPrompt; aqui KeyPrompt para no romper el nombre antiguo)
+	local KeyPrompt = Create("TextLabel", {
+		Name = "KeyPrompt",
+		Size = UDim2.new(1, -28, 0, 18),
+		Position = UDim2.new(0, 14, 0, HEADER_H + 8),
+		BackgroundColor3 = COLOR.FIELD,
+		BackgroundTransparency = 1,
+		Text = "",
+		TextColor3 = COLOR.TEXT,
+		FontFace = FONT_MED,
+		TextSize = 11,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTransparency = 1,
+		ZIndex = 60,
+		Parent = Body,
+	})
+	Round(6, KeyPrompt)
+	win.KeyPrompt = KeyPrompt
+	win._keyPromptShown = false
 
 	win:_registerFade(Body, "GroupTransparency", 0, 1)
 	win:_registerFade(WinShadow, "Transparency", SHADOW_TRANSPARENCY, 1)
