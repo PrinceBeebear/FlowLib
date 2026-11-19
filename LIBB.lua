@@ -3297,7 +3297,10 @@ end
 
 function Window:CreateSpeedFooter(opts)
 	opts = opts or {}
-	local footerH = 104
+	-- topInset: franja libre arriba (p. ej. el player "Now playing").
+	-- Todo el contenido de abajo se baja ese mismo numero de pixeles.
+	local topInset = math.max(0, tonumber(opts.topInset) or 0)
+	local footerH = 104 + topInset
 	self._footerHeight = footerH
 	self._footerVisible = true
 
@@ -3378,7 +3381,7 @@ function Window:CreateSpeedFooter(opts)
 		Name = "Track",
 		Size = UDim2.new(1, -20, 0, 5),
 		Position = UDim2.new(0, 10, 0, 45),
-		BackgroundColor3 = Color3.fromRGB(50, 50, 50),
+		BackgroundColor3 = opts.trackColor or Color3.fromRGB(50, 50, 50),
 		Parent = footer,
 	})
 	Circle(track)
@@ -3386,7 +3389,7 @@ function Window:CreateSpeedFooter(opts)
 	local fill = Create("Frame", {
 		Name = "Fill",
 		Size = UDim2.new(0, 0, 1, 0),
-		BackgroundColor3 = COLOR.GREEN,
+		BackgroundColor3 = opts.fillColor or COLOR.GREEN,
 		Parent = track,
 	})
 	Circle(fill)
@@ -3396,11 +3399,21 @@ function Window:CreateSpeedFooter(opts)
 		AnchorPoint = Vector2.new(0.5, 0.5),
 		Size = UDim2.new(0, 16, 0, 10),
 		Position = UDim2.new(0, 0, 0.5, 0),
-		BackgroundColor3 = COLOR.TEXT,
+		BackgroundColor3 = opts.knobColor or COLOR.TEXT,
 		ZIndex = 3,
 		Parent = track,
 	})
 	Circle(knob)
+
+	-- flatKnob: knob "plano" (sin sombra/lente/tween) para el reanim
+	local flatKnob = opts.flatKnob == true
+	if flatKnob then
+		for _, d in ipairs(knob:GetChildren()) do
+			if d:IsA("UIShadow") or d:IsA("UIStroke") or d:IsA("UIGradient") then
+				pcall(function() d:Destroy() end)
+			end
+		end
+	end
 
 	local hit = Create("TextButton", {
 		Name = "Hit",
@@ -3435,7 +3448,9 @@ function Window:CreateSpeedFooter(opts)
 
 	local function updateAccent()
 		local col = isReversed and COLOR.DANGER or COLOR.GREEN
-		fill.BackgroundColor3 = col
+		-- fillColor fija el relleno (lado izquierdo del knob) sin que
+		-- reverse lo pinte de verde/rojo; el valor si sigue el acento
+		fill.BackgroundColor3 = opts.fillColor or col
 		speedValLabel.TextColor3 = col
 		revBtn.BackgroundColor3 = isReversed and COLOR.DANGER or COLOR.ROW
 	end
@@ -3443,8 +3458,13 @@ function Window:CreateSpeedFooter(opts)
 	local function setSpeed(val, fire)
 		curSpeed = math.clamp(tonumber(val) or 5, minS, maxS)
 		local pct = math.clamp((curSpeed - minS) / (maxS - minS), 0, 1)
-		Tween(fill, { Size = UDim2.new(pct, 0, 1, 0) }, 0.08)
-		Tween(knob, { Position = UDim2.new(pct, 0, 0.5, 0) }, 0.08)
+		if flatKnob then
+			fill.Size = UDim2.new(pct, 0, 1, 0)
+			knob.Position = UDim2.new(pct, 0, 0.5, 0)
+		else
+			Tween(fill, { Size = UDim2.new(pct, 0, 1, 0) }, 0.08)
+			Tween(knob, { Position = UDim2.new(pct, 0, 0.5, 0) }, 0.08)
+		end
 		speedValLabel.Text = string.format("%.1f", curSpeed):gsub("%.0$", "")
 		if fire and opts.onSpeedChanged then
 			opts.onSpeedChanged(curSpeed, isReversed)
@@ -3614,6 +3634,18 @@ function Window:CreateSpeedFooter(opts)
 
 	setSpeed(curSpeed, false)
 	updateAccent()
+
+	-- topInset: baja todo el contenido para dejar la franja de arriba
+	-- libre (el player "Now playing" la rellena desde el script)
+	if topInset > 0 then
+		for _, c in ipairs(footer:GetChildren()) do
+			if c:IsA("GuiObject") then
+				local p = c.Position
+				c.Position = UDim2.new(p.X.Scale, p.X.Offset, p.Y.Scale, p.Y.Offset + topInset)
+			end
+		end
+	end
+
 	self:_layoutPages()
 
 	return {
@@ -3729,6 +3761,18 @@ function FlowLib:CreateWindow(opts)
 	minRW = math.min(minRW, fullSize.X.Offset)
 	minRH = math.min(minRH, fullSize.Y.Offset)
 	win.resizeMin = { w = minRW, h = minRH }
+
+	-- tamano maximo al arrastrar el grip (nil = libre, como antes)
+	local maxRW, maxRH
+	if type(opts.maxSize) == "table" then
+		maxRW = tonumber(opts.maxSize[1])
+		maxRH = tonumber(opts.maxSize[2])
+	end
+	if maxRW or maxRH then
+		win.resizeMax = { w = maxRW, h = maxRH }
+	else
+		win.resizeMax = nil
+	end
 
 	local ScreenGui = Create("ScreenGui", {
 		Name = guiName,
@@ -3996,6 +4040,11 @@ function FlowLib:CreateWindow(opts)
 		local rmin = win.resizeMin or { w = 24, h = 24 }
 		local w = math.max(rmin.w, math.floor(startW + (input.Position.X - resizeStart.X)))
 		local h = math.max(rmin.h, math.floor(startH + (input.Position.Y - resizeStart.Y)))
+		local rmax = win.resizeMax
+		if rmax then
+			if rmax.w then w = math.min(w, rmax.w) end
+			if rmax.h then h = math.min(h, rmax.h) end
+		end
 		local pos = MainFrame.Position
 		win._resizeTarget = {
 			position = UDim2.new(pos.X.Scale, startOffsetX + math.floor((w - startW) / 2), pos.Y.Scale, pos.Y.Offset),
